@@ -300,7 +300,7 @@ public:
 
 class OSystemCGX : public OSystem_AmigaOS3_Modular {
 public:
-	OSystemCGX();
+	OSystemCGX(unsigned int zz9k_addr);
 	virtual ~OSystemCGX();
 
 	virtual bool hasFeature(OSystem::Feature f) override;
@@ -376,6 +376,10 @@ public:
 	struct Window *createHardwareWindow(uint16 width, uint16 height, struct Screen *screen);
 	void unloadGFXMode();
 	void updatePalette();
+
+private:
+	bool _zz9k_available;
+	unsigned int _zz9k_addr, _zz9k_gfxdata;
 };
 
 #endif

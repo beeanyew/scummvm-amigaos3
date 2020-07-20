@@ -31,6 +31,7 @@
 #include "common/scummsys.h"
 #include "common/textconsole.h"
 #include "graphics/scaler/aspect.h"
+#include "amigaos3-zz9k.h"
 
 #include <proto/commodities.h>
 #include <proto/cybergraphics.h>
@@ -67,7 +68,9 @@ static struct Window *_hardwareOverlayWindow = NULL;
 static const OSystem::GraphicsMode s_supportedGraphicsModes[] = {{"1x", "Normal", GFX_NORMAL}, {0, 0, 0}};
 static const OSystem::GraphicsMode s_noStretchModes[] = {{"NONE", "Normal", 0}, {nullptr, nullptr, 0 }};
 
-OSYSCGX::OSystemCGX() {
+extern unsigned char zz9k_palette[768];
+
+OSYSCGX::OSystemCGX(unsigned int zz9k_addr) {
 	// gDebugLevel = 11;
 
 	_inited = false;
@@ -99,6 +102,12 @@ OSYSCGX::OSystemCGX() {
 
 	_overlayVisible = true;
 	_overlayColorMap = NULL;
+
+	if (zz9k_addr != 0) {
+		_zz9k_available = true;
+		_zz9k_addr = zz9k_addr;
+		_zz9k_gfxdata = zz9k_addr + Z3_GFXDATA_ADDR;
+	}
 }
 
 OSYSCGX::~OSystemCGX() {
@@ -438,15 +447,31 @@ bool OSYSCGX::loadGFXMode() {
 
 	SetPointer(_hardwareGameWindow, emptypointer, 1, 16, 0, 0);
 
-	// Create the surface that contains the 8 bit game data
-	_screen.create(_videoMode.screenWidth, _videoMode.screenHeight, Graphics::PixelFormat::createFormatCLUT8());
+	if (_zz9k_available) {
+		Graphics::PixelFormat color_format = Graphics::PixelFormat::createFormatCLUT8();
 
-	// Create the screen used by the scaler/shaker.
-	_tmpscreen.create(_videoMode.screenWidth, _videoMode.screenHeight, Graphics::PixelFormat::createFormatCLUT8());
+		_screen.init(_videoMode.screenWidth, _videoMode.screenHeight, color_format.bytesPerPixel * _videoMode.screenWidth,
+			(void *)((unsigned int)(_zz9k_addr + zz9k_get_surface_offset(ZZ9K_OFFSET_GAME_SCREEN))), color_format);
+		_tmpscreen.init(_videoMode.screenWidth, _videoMode.screenHeight, color_format.bytesPerPixel * _videoMode.screenWidth,
+			(void *)((unsigned int)(_zz9k_addr + zz9k_get_surface_offset(ZZ9K_OFFSET_TMP_SCREEN))), color_format);
+		_overlayscreen8.init(_videoMode.overlayWidth, _videoMode.overlayHeight, color_format.bytesPerPixel * _videoMode.overlayWidth,
+			(void *)((unsigned int)(_zz9k_addr + zz9k_get_surface_offset(ZZ9K_OFFSET_OVERLAY))), color_format);
+		
+		printf("Screen: %p Pitch: %d\n", _screen.getPixels(), _screen.pitch);
+		printf("TmpScreen: %p Pitch: %d\n", _tmpscreen.getPixels(), _tmpscreen.pitch);
+		printf("Overlay: %p Pitch: %d\n", _overlayscreen8.getPixels(), _overlayscreen8.pitch);
+	}
+	else {
+		// Create the surface that contains the 8 bit game data
+		_screen.create(_videoMode.screenWidth, _videoMode.screenHeight, Graphics::PixelFormat::createFormatCLUT8());
 
-	// Create the 8bit overlay surface
-	_overlayscreen8.create(_videoMode.overlayWidth, _videoMode.overlayHeight,
-						   Graphics::PixelFormat::createFormatCLUT8());
+		// Create the screen used by the scaler/shaker.
+		_tmpscreen.create(_videoMode.screenWidth, _videoMode.screenHeight, Graphics::PixelFormat::createFormatCLUT8());
+
+		// Create the 8bit overlay surface
+		_overlayscreen8.create(_videoMode.overlayWidth, _videoMode.overlayHeight,
+							Graphics::PixelFormat::createFormatCLUT8());
+	}
 
 	// Create the 16bit overlay surface
 	_overlayscreen16.create(_videoMode.overlayWidth, _videoMode.overlayHeight, _overlayFormat);
@@ -559,6 +584,10 @@ void OSYSCGX::setPalette(const byte *colors, uint start, uint num) {
 
 	byte *dst = (byte *)(_currentPalette + (3 * start));
 	CopyMem((byte *)colors, dst, (num * 3));
+	if (_zz9k_available) {
+		dst = (byte *)(zz9k_palette + (3 * start));
+		CopyMem((byte *)colors, dst, (num * 3));
+	}
 
 	if (start < _paletteDirtyStart) {
 		_paletteDirtyStart = start;
@@ -615,6 +644,7 @@ void OSYSCGX::updatePalette() {
 	_paletteDirtyEnd = 0;
 }
 
+
 void OSYSCGX::copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) {
 #ifndef NDEBUG
 	debug(4, "copyRectToScreen()");
@@ -632,6 +662,15 @@ void OSYSCGX::copyRectToScreen(const void *buf, int pitch, int x, int y, int w, 
 	assert(h > 0 && y + h <= _videoMode.screenHeight);
 	assert(w > 0 && x + w <= _videoMode.screenWidth);
 #endif
+
+	if (_zz9k_available) {
+		unsigned int src = (unsigned int)buf;
+		if ((unsigned int)buf >= _zz9k_addr) {
+			// Both surfaces are in video RAM, so let the ZZ9000 handle it.
+			zz9k_blit_rect(src, zz9k_get_surface_offset(ZZ9K_OFFSET_GAME_SCREEN), x, y, pitch, _videoMode.bytesPerRow, w, h);
+			return;
+		}
+	}
 
 	byte *dst = ((byte *)_screen.getBasePtr(0, 0)) + _videoMode.bytesPerRow * y + x;
 
@@ -651,8 +690,12 @@ void OSYSCGX::copyRectToScreen(const void *buf, int pitch, int x, int y, int w, 
 
 void OSYSCGX::fillScreen(uint32 col) {
 	if (_screen.getPixels()) {
-		memset(_screen.getPixels(), (int)col, (_videoMode.bytesPerRow * _videoMode.screenHeight));
 		_screenDirty = true;
+		if (_zz9k_available) {
+			zz9k_clearbuf(zz9k_get_surface_offset(ZZ9K_OFFSET_GAME_SCREEN), col, _videoMode.screenWidth, _videoMode.screenHeight, MNTVA_COLOR_8BIT);
+			return;
+		}
+		memset(_screen.getPixels(), (int)col, (_videoMode.bytesPerRow * _videoMode.screenHeight));
 	}
 }
 
@@ -662,6 +705,50 @@ void OSYSCGX::updateScreen() {
 #endif
 
 	UBYTE *src;
+
+	// Check whether the palette was changed.
+	if (_paletteDirtyEnd != 0) {
+		updatePalette();
+	}
+
+	if (_zz9k_available) {
+		if (_overlayVisible && _overlayDirty) {
+			//if (_mouseCursor.visible)
+				//drawMouse();
+			
+			UBYTE *base_address;
+			APTR video_bitmap_handle = LockBitMapTags(_hardwareOverlayScreen->ViewPort.RasInfo->BitMap, LBMI_BASEADDRESS,
+												  (ULONG)&base_address, TAG_DONE);
+			//WaitTOF();
+			zz9k_flip_surface(zz9k_get_surface_offset(ZZ9K_OFFSET_OVERLAY), ((unsigned int)base_address) - _zz9k_addr, _videoMode.overlayWidth, _videoMode.overlayHeight);
+
+			UnLockBitMap(video_bitmap_handle);
+
+			//if (_mouseCursor.visible)
+				//undrawMouse();
+			_overlayDirty = false;
+		}
+		else if (_screenDirty) {
+			//if (_mouseCursor.visible)
+				//drawMouse();
+
+			UBYTE *base_address;
+			APTR video_bitmap_handle = LockBitMapTags(_hardwareGameScreen->ViewPort.RasInfo->BitMap, LBMI_BASEADDRESS,
+												(ULONG)&base_address, TAG_DONE);
+			
+			//WaitTOF();
+			zz9k_flip_surface(zz9k_get_surface_offset(ZZ9K_OFFSET_GAME_SCREEN), ((unsigned int)base_address) - _zz9k_addr, _videoMode.screenWidth, _videoMode.screenHeight);
+
+			UnLockBitMap(video_bitmap_handle);
+
+			//if (_mouseCursor.visible)
+				//undrawMouse();
+			_screenDirty = false;
+		}
+
+		return;
+	}
+
 
 	if (_overlayVisible && _overlayDirty) {
 		if (_mouseCursor.visible) {
@@ -676,7 +763,7 @@ void OSYSCGX::updateScreen() {
 			// _videoMode.overlayHeight));
 
 			UBYTE *dst = base_address;
-			UBYTE *src = (UBYTE *)_overlayscreen8.getPixels();
+			src = (UBYTE *)_overlayscreen8.getPixels();
 
 			for (uint r = 0; r < _videoMode.overlayHeight; r++) {
 				CopyMem(src, dst, _videoMode.overlayWidth);
@@ -733,11 +820,6 @@ void OSYSCGX::updateScreen() {
 		}
 
 		_screenDirty = false;
-	}
-
-	// Check whether the palette was changed.
-	if (_paletteDirtyEnd != 0) {
-		updatePalette();
 	}
 }
 
@@ -991,12 +1073,6 @@ void OSYSCGX::setMouseCursor(const void *buf, uint w, uint h, int hotspot_x, int
 		return;
 	}
 
-	// Check to see if we need to recreate the surfaces.
-	if (w != _mouseCursor.w || h != _mouseCursor.h) {
-		_mouseCursor.surface.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-		_mouseCursorMask.surface.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
-	}
-
 	MouseCursor oldMouseCursor = _mouseCursor;
 
 	_mouseCursor.w = w;
@@ -1004,6 +1080,17 @@ void OSYSCGX::setMouseCursor(const void *buf, uint w, uint h, int hotspot_x, int
 	_mouseCursor.hotX = hotspot_x;
 	_mouseCursor.hotY = hotspot_y;
 	_mouseCursor.keyColor = keycolor;
+
+	if (_zz9k_available) {
+		zz9k_set_clut_mouse_cursor(_mouseCursor.hotX, _mouseCursor.hotY, _mouseCursor.w, _mouseCursor.h, buf, keycolor);
+		return;
+	}
+
+	// Check to see if we need to recreate the surfaces.
+	if (w != oldMouseCursor.w || h != oldMouseCursor.h) {
+		_mouseCursor.surface.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+		_mouseCursorMask.surface.create(w, h, Graphics::PixelFormat::createFormatCLUT8());
+	}
 
 	if (memcmp(&oldMouseCursor, &_mouseCursor, sizeof(MouseCursor)) != 0) {
 		if (_overlayVisible) {

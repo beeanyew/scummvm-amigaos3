@@ -337,6 +337,9 @@ uint32 OSystem_AmigaOS3_Modular::getMillis(bool skipRecord) {
 	return tc;
 }
 
+extern struct Library *CyberGfxBase;
+extern struct timerequest *TimerIOReq;
+
 void OSystem_AmigaOS3_Modular::delayMillis(uint msecs) {
 // Temporary workaround, using the same IO request from multiple threads
 //  could be dangerous.

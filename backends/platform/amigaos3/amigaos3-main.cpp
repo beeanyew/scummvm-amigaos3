@@ -29,6 +29,7 @@
 #include "common/scummsys.h"
 
 #include "backends/platform/amigaos3/amigaos3-modular.h"
+#include "amigaos3-zz9k.h"
 
 #include <proto/icon.h>
 #include <proto/timer.h>
@@ -51,6 +52,8 @@ struct MsgPort* TimerMP = NULL;
 struct Device* TimerBase = NULL;
 struct timerequest *TimerIOReq = NULL;
 ULONG eclocks_per_ms; /* EClock frequency in 1000Hz */
+
+unsigned int zz9k_base_addr = 0;
 
 static void unload_libraries(void) {
 	if (CxBase != NULL) {
@@ -117,6 +120,9 @@ static void load_libraries(void) {
 	CyberGfxBase = (struct Library*) OpenLibrary("cybergraphics.library", 0);
 	if (CyberGfxBase == NULL) {
 	    fprintf(stderr, "Unable to load cybergraphics.library, CGX not available.\n");
+	}
+	else {
+		zz9k_base_addr = find_zz9k();
 	}
 
 	GfxBase = (struct GfxBase*)OpenLibrary("graphics.library", 0);
@@ -219,7 +225,7 @@ __stdargs int main(int argcWb, char const * argvWb[]) {
 	// Create our OSystem instance
 	OSystem_AmigaOS3_Modular *sys;
 	if (CyberGfxBase != NULL) {
-		sys = new OSystemCGX();
+		sys = new OSystemCGX(zz9k_base_addr);
 	}
 	else {
 		sys = new OSystemAGA();
