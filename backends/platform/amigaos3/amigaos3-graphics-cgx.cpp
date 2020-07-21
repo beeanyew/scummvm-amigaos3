@@ -69,6 +69,10 @@ static const OSystem::GraphicsMode s_supportedGraphicsModes[] = {{"1x", "Normal"
 static const OSystem::GraphicsMode s_noStretchModes[] = {{"NONE", "Normal", 0}, {nullptr, nullptr, 0 }};
 
 extern unsigned char zz9k_palette[768];
+static UBYTE *overlayScreenAddress = 0;
+static UBYTE *gameScreenAddress = 0;
+
+extern bool surfaces_use_zz9k;
 
 OSYSCGX::OSystemCGX(unsigned int zz9k_addr) {
 	// gDebugLevel = 11;
@@ -103,8 +107,12 @@ OSYSCGX::OSystemCGX(unsigned int zz9k_addr) {
 	_overlayVisible = true;
 	_overlayColorMap = NULL;
 
+	masked_blit = false;
+	mask_color = 0;
+
 	if (zz9k_addr != 0) {
 		_zz9k_available = true;
+		surfaces_use_zz9k = true;
 		_zz9k_addr = zz9k_addr;
 		_zz9k_gfxdata = zz9k_addr + Z3_GFXDATA_ADDR;
 	}
@@ -451,15 +459,30 @@ bool OSYSCGX::loadGFXMode() {
 		Graphics::PixelFormat color_format = Graphics::PixelFormat::createFormatCLUT8();
 
 		_screen.init(_videoMode.screenWidth, _videoMode.screenHeight, color_format.bytesPerPixel * _videoMode.screenWidth,
-			(void *)((unsigned int)(_zz9k_addr + zz9k_get_surface_offset(ZZ9K_OFFSET_GAME_SCREEN))), color_format);
+			(void *)zz9k_alloc_surface(_videoMode.screenWidth, _videoMode.screenHeight), color_format);
 		_tmpscreen.init(_videoMode.screenWidth, _videoMode.screenHeight, color_format.bytesPerPixel * _videoMode.screenWidth,
-			(void *)((unsigned int)(_zz9k_addr + zz9k_get_surface_offset(ZZ9K_OFFSET_TMP_SCREEN))), color_format);
+			(void *)zz9k_alloc_surface(_videoMode.screenWidth, _videoMode.screenHeight), color_format);
 		_overlayscreen8.init(_videoMode.overlayWidth, _videoMode.overlayHeight, color_format.bytesPerPixel * _videoMode.overlayWidth,
-			(void *)((unsigned int)(_zz9k_addr + zz9k_get_surface_offset(ZZ9K_OFFSET_OVERLAY))), color_format);
+			(void *)zz9k_alloc_surface(_videoMode.overlayWidth, _videoMode.overlayHeight), color_format);
+		_overlayscreen16.init(_videoMode.overlayWidth, _videoMode.overlayHeight, color_format.bytesPerPixel * _videoMode.overlayWidth,
+			(void *)zz9k_alloc_surface(_videoMode.overlayWidth, _videoMode.overlayHeight, _overlayFormat.bytesPerPixel), _overlayFormat);
+
+		UBYTE *base_address;
+		APTR video_bitmap_handle = LockBitMapTags(_hardwareOverlayScreen->ViewPort.RasInfo->BitMap, LBMI_BASEADDRESS,
+	  			(ULONG)&base_address, TAG_DONE);
+		overlayScreenAddress = (UBYTE *)base_address;
+		UnLockBitMap(video_bitmap_handle);
+		video_bitmap_handle = LockBitMapTags(_hardwareGameScreen->ViewPort.RasInfo->BitMap, LBMI_BASEADDRESS,
+	  			(ULONG)&base_address, TAG_DONE);
+		gameScreenAddress = (UBYTE *)base_address;
+		UnLockBitMap(video_bitmap_handle);
 		
 		printf("Screen: %p Pitch: %d\n", _screen.getPixels(), _screen.pitch);
+		//zz9k_alloc_surface(_screen.w, _screen.h);
 		printf("TmpScreen: %p Pitch: %d\n", _tmpscreen.getPixels(), _tmpscreen.pitch);
+		//zz9k_alloc_surface(_tmpscreen.w, _tmpscreen.h);
 		printf("Overlay: %p Pitch: %d\n", _overlayscreen8.getPixels(), _overlayscreen8.pitch);
+		//zz9k_alloc_surface(_overlayscreen8.w, _overlayscreen8.h);
 	}
 	else {
 		// Create the surface that contains the 8 bit game data
@@ -471,10 +494,11 @@ bool OSYSCGX::loadGFXMode() {
 		// Create the 8bit overlay surface
 		_overlayscreen8.create(_videoMode.overlayWidth, _videoMode.overlayHeight,
 							Graphics::PixelFormat::createFormatCLUT8());
+
+		// Create the 16bit overlay surface
+		_overlayscreen16.create(_videoMode.overlayWidth, _videoMode.overlayHeight, _overlayFormat);
 	}
 
-	// Create the 16bit overlay surface
-	_overlayscreen16.create(_videoMode.overlayWidth, _videoMode.overlayHeight, _overlayFormat);
 
 	_screenDirty = true;
 	_overlayDirty = true;
@@ -543,6 +567,10 @@ struct Window *OSYSCGX::createHardwareWindow(uint16 width, uint16 height, struct
 }
 
 void OSYSCGX::unloadGFXMode() {
+	//zz9k_free_surface((uint32_t)_screen.getPixels());
+	//zz9k_free_surface((uint32_t)_tmpscreen.getPixels());
+	//zz9k_free_surface((uint32_t)_overlayscreen8.getPixels());
+
 	_screen.free();
 	_tmpscreen.free();
 
@@ -583,10 +611,10 @@ void OSYSCGX::setPalette(const byte *colors, uint start, uint num) {
 #endif
 
 	byte *dst = (byte *)(_currentPalette + (3 * start));
-	CopyMem((byte *)colors, dst, (num * 3));
+	CopyMem((byte *)((uint32_t)colors), dst, (num * 3));
 	if (_zz9k_available) {
 		dst = (byte *)(zz9k_palette + (3 * start));
-		CopyMem((byte *)colors, dst, (num * 3));
+		CopyMem((byte *)((uint32_t)colors), dst, (num * 3));
 	}
 
 	if (start < _paletteDirtyStart) {
@@ -644,7 +672,6 @@ void OSYSCGX::updatePalette() {
 	_paletteDirtyEnd = 0;
 }
 
-
 void OSYSCGX::copyRectToScreen(const void *buf, int pitch, int x, int y, int w, int h) {
 #ifndef NDEBUG
 	debug(4, "copyRectToScreen()");
@@ -665,25 +692,28 @@ void OSYSCGX::copyRectToScreen(const void *buf, int pitch, int x, int y, int w, 
 
 	if (_zz9k_available) {
 		unsigned int src = (unsigned int)buf;
-		if ((unsigned int)buf >= _zz9k_addr) {
+		if ((unsigned int)buf > _zz9k_addr) {
 			// Both surfaces are in video RAM, so let the ZZ9000 handle it.
-			zz9k_blit_rect(src, zz9k_get_surface_offset(ZZ9K_OFFSET_GAME_SCREEN), x, y, pitch, _videoMode.bytesPerRow, w, h);
+			if (masked_blit) {
+				zz9k_blit_rect_mask(src, SURFACE_OFFSET(_screen), x, y, pitch, _videoMode.bytesPerRow, w, h, mask_color);
+			}
+			else {
+				zz9k_blit_rect(src, SURFACE_OFFSET(_screen), x, y, pitch, _videoMode.bytesPerRow, w, h);
+			}
+
+			_screenDirty = true;
 			return;
 		}
 	}
 
 	byte *dst = ((byte *)_screen.getBasePtr(0, 0)) + _videoMode.bytesPerRow * y + x;
 
-	/*if (_videoMode.screenWidth == pitch && pitch == w) {
-		CopyMemQuick((byte*)buf, dst, w * h);
-		} else {*/
 	const byte *src = (const byte *)buf;
 	do {
-		CopyMem((void *)src, dst, w);
+		CopyMem((void *)((uint32_t)src), dst, w);
 		src += pitch;
 		dst += _videoMode.bytesPerRow;
 	} while (--h);
-	//}
 
 	_screenDirty = true;
 }
@@ -692,7 +722,7 @@ void OSYSCGX::fillScreen(uint32 col) {
 	if (_screen.getPixels()) {
 		_screenDirty = true;
 		if (_zz9k_available) {
-			zz9k_clearbuf(zz9k_get_surface_offset(ZZ9K_OFFSET_GAME_SCREEN), col, _videoMode.screenWidth, _videoMode.screenHeight, MNTVA_COLOR_8BIT);
+			zz9k_clearbuf(SURFACE_OFFSET(_screen), col, _videoMode.screenWidth, _videoMode.screenHeight, MNTVA_COLOR_8BIT);
 			return;
 		}
 		memset(_screen.getPixels(), (int)col, (_videoMode.bytesPerRow * _videoMode.screenHeight));
@@ -713,36 +743,13 @@ void OSYSCGX::updateScreen() {
 
 	if (_zz9k_available) {
 		if (_overlayVisible && _overlayDirty) {
-			//if (_mouseCursor.visible)
-				//drawMouse();
-			
-			UBYTE *base_address;
-			APTR video_bitmap_handle = LockBitMapTags(_hardwareOverlayScreen->ViewPort.RasInfo->BitMap, LBMI_BASEADDRESS,
-												  (ULONG)&base_address, TAG_DONE);
 			//WaitTOF();
-			zz9k_flip_surface(zz9k_get_surface_offset(ZZ9K_OFFSET_OVERLAY), ((unsigned int)base_address) - _zz9k_addr, _videoMode.overlayWidth, _videoMode.overlayHeight);
-
-			UnLockBitMap(video_bitmap_handle);
-
-			//if (_mouseCursor.visible)
-				//undrawMouse();
+			zz9k_flip_surface(SURFACE_OFFSET(_overlayscreen8), ((unsigned int)overlayScreenAddress) - _zz9k_addr, _videoMode.overlayWidth, _videoMode.overlayHeight);
 			_overlayDirty = false;
 		}
 		else if (_screenDirty) {
-			//if (_mouseCursor.visible)
-				//drawMouse();
-
-			UBYTE *base_address;
-			APTR video_bitmap_handle = LockBitMapTags(_hardwareGameScreen->ViewPort.RasInfo->BitMap, LBMI_BASEADDRESS,
-												(ULONG)&base_address, TAG_DONE);
-			
 			//WaitTOF();
-			zz9k_flip_surface(zz9k_get_surface_offset(ZZ9K_OFFSET_GAME_SCREEN), ((unsigned int)base_address) - _zz9k_addr, _videoMode.screenWidth, _videoMode.screenHeight);
-
-			UnLockBitMap(video_bitmap_handle);
-
-			//if (_mouseCursor.visible)
-				//undrawMouse();
+			zz9k_flip_surface(SURFACE_OFFSET(_screen), ((unsigned int)gameScreenAddress) - _zz9k_addr, _videoMode.screenWidth, _videoMode.screenHeight);
 			_screenDirty = false;
 		}
 
@@ -889,6 +896,10 @@ void OSYSCGX::loadOverlayColorMap() {
 		i++;
 	}
 
+	if (_zz9k_available) {
+		zz9k_set_16_to_8_colormap((void *)_overlayColorMap);
+	}
+
 	fclose(mapFile);
 }
 
@@ -941,8 +952,13 @@ void OSYSCGX::clearOverlay() {
 	}
 
 	// Set the background to black.
-	byte *src = (byte *)_overlayscreen8.getPixels();
-	memset(src, 0, (_videoMode.overlayWidth * _videoMode.overlayHeight));
+	if (_zz9k_available) {
+		zz9k_clearbuf(SURFACE_OFFSET(_overlayscreen8), 0, _videoMode.overlayWidth, _videoMode.overlayHeight, MNTVA_COLOR_8BIT);
+	}
+	else {
+		byte *src = (byte *)_overlayscreen8.getPixels();
+		memset(src, 0, (_videoMode.overlayWidth * _videoMode.overlayHeight));
+	}
 	_overlayDirty = true;
 }
 
@@ -964,11 +980,7 @@ void OSYSCGX::copyRectToOverlay(const void *buf, int pitch, int x, int y, int w,
 #endif
 
 	// Clip the coordinates
-	if (x < 0) {
-		return;
-	}
-
-	if (y < 0) {
+	if (x < 0 || y < 0) {
 		return;
 	}
 
@@ -984,28 +996,23 @@ void OSYSCGX::copyRectToOverlay(const void *buf, int pitch, int x, int y, int w,
 		return;
 	}
 
-	const OverlayColor *src = (const OverlayColor *)buf;
-	byte *dst = (byte *)_overlayscreen8.getBasePtr(x, y);  // + y*_videoMode.overlayBytesPerRow;
+	if (_zz9k_available || (uint32_t)buf > _zz9k_addr) {
+		byte *src = (byte *)((uint32_t)buf);
+		byte *dst = (byte *)_overlayscreen8.getPixels();
 
-	OverlayColor color16;
-	byte color8;
+		zz9k_blit_rect((uint32_t)src, (uint32_t)dst, x, y, _overlayscreen16.pitch, _overlayscreen8.pitch, w, h, 2, 1);
+	}
+	else {
+		const OverlayColor *src = (const OverlayColor *)buf;
+		byte *dst = (byte *)_overlayscreen8.getBasePtr(x, y);  // + y*_videoMode.overlayBytesPerRow;
 
-	for (uint r = 0; r < h; r++) {
-		for (uint c = 0; c < w; c++) {
-			color16 = *src;
-
-			color8 = _overlayColorMap[color16];
-
-			*dst = color8;
-
-			// Add a column.
-			src++;
-			dst++;
+		for (int r = 0; r < h; r++) {
+			for (int c = 0; c < w; c++) {
+				dst[c] = _overlayColorMap[src[c]];
+			}
+			dst += _videoMode.overlayWidth;
+			src += _videoMode.overlayWidth;
 		}
-
-		// add a row.
-		dst += (_videoMode.overlayWidth - w);
-		src += (_videoMode.overlayWidth - w);
 	}
 
 	_overlayDirty = true;
@@ -1099,7 +1106,7 @@ void OSYSCGX::setMouseCursor(const void *buf, uint w, uint h, int hotspot_x, int
 			_screenDirty = true;
 		}
 	}
-	CopyMem((void *)buf, _mouseCursor.surface.getPixels(), w * h);
+	CopyMem((void *)((uint32_t)buf), _mouseCursor.surface.getPixels(), w * h);
 }
 
 void OSYSCGX::setMouseCursorPosition(uint16 x, uint16 y) {

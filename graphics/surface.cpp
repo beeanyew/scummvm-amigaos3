@@ -29,6 +29,10 @@
 #include "graphics/surface.h"
 #include "graphics/conversion.h"
 
+#include "backends/platform/amigaos3/amigaos3-zz9k.h"
+
+bool surfaces_use_zz9k = false;
+
 namespace Graphics {
 
 template<typename T>
@@ -71,13 +75,19 @@ void Surface::create(uint16 width, uint16 height, const PixelFormat &f) {
 	pitch = w * format.bytesPerPixel;
 
 	if (width && height) {
-		pixels = calloc(width * height, format.bytesPerPixel);
+		if (surfaces_use_zz9k)
+			pixels = (void *)zz9k_alloc_surface(width, height, format.bytesPerPixel);
+		else
+			pixels = calloc(width * height, format.bytesPerPixel);
 		assert(pixels);
 	}
 }
 
 void Surface::free() {
-	::free(pixels);
+	if (surfaces_use_zz9k)
+		zz9k_free_surface((unsigned int)pixels);
+	else
+		::free(pixels);
 	pixels = 0;
 	w = h = pitch = 0;
 	format = PixelFormat();
@@ -142,9 +152,15 @@ void Surface::copyRectToSurface(const void *buffer, int srcPitch, int destX, int
 	assert(height > 0 && destY + height <= h);
 	assert(width > 0 && destX + width <= w);
 
-	// Copy buffer data to internal buffer
 	const byte *src = (const byte *)buffer;
 	byte *dst = (byte *)getBasePtr(destX, destY);
+
+	if (surfaces_use_zz9k) {
+		zz9k_blit_rect((uint32)buffer, (uint32)getBasePtr(destX, destY), destX, destY, srcPitch, pitch, width, height);
+		return;
+	}
+
+	// Copy buffer data to internal buffer
 	for (int i = 0; i < height; i++) {
 		memcpy(dst, src, width * format.bytesPerPixel);
 		src += srcPitch;
@@ -286,6 +302,29 @@ void Surface::move(int dx, int dy, int height) {
 
 	byte *src, *dst;
 	int x, y;
+
+	if (surfaces_use_zz9k) {
+		uint8 color_format;
+		switch (format.bytesPerPixel) {
+			case 1: color_format = MNTVA_COLOR_8BIT; break;
+			case 2: color_format = MNTVA_COLOR_16BIT565; break;
+			case 4: color_format = MNTVA_COLOR_32BIT; break;
+			default: return; break;
+		}
+
+		if (dy > 0) {
+			zz9k_blit_rect((uint32)pixels, (uint32)pixels, 0, dy, pitch, pitch, w, height, format.bytesPerPixel, format.bytesPerPixel, true);
+		} else if (dy < 0) {
+			zz9k_blit_rect((uint32)pixels + (-dy * pitch), (uint32)pixels, 0, 0, pitch, pitch, w, height, format.bytesPerPixel, format.bytesPerPixel);
+		}
+		if (dx > 0) {
+			zz9k_blit_rect((uint32)pixels, (uint32)pixels, 0, dx, pitch, pitch, w - dx, height, format.bytesPerPixel, format.bytesPerPixel, true);
+		} else if (dx < 0) {
+			zz9k_blit_rect((uint32)pixels + (-dx), (uint32)pixels, 0, 0, pitch, pitch, w + dx, height, format.bytesPerPixel, format.bytesPerPixel);
+		}
+
+		return;
+	}
 
 	// vertical movement
 	if (dy > 0) {

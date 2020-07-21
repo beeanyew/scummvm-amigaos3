@@ -34,6 +34,9 @@
 #include "scumm/he/wiz_he.h"
 #include "scumm/util.h"
 
+#include "backends/platform/amigaos3/amigaos3-zz9k.h"
+#include "backends/platform/amigaos3/amigaos3-modular.h"
+
 #ifdef USE_ARM_GFX_ASM
 
 #ifndef IPHONE
@@ -45,6 +48,8 @@ extern "C" void asmDrawStripToScreen(int height, int width, void const* text, vo
 	int vsPitch, int vmScreenWidth, int textSurfacePitch);
 extern "C" void asmCopy8Col(byte* dst, int dstPitch, const byte* src, int height, uint8 bitDepth);
 #endif /* USE_ARM_GFX_ASM */
+
+extern bool surfaces_use_zz9k;
 
 namespace Scumm {
 
@@ -199,7 +204,6 @@ static const TransitionEffect transitionEffects[6] = {
 	}
 
 };
-
 
 Gdi::Gdi(ScummEngine *vm) : _vm(vm) {
 	_numZBuffer = 0;
@@ -641,13 +645,25 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 
 	// In MM NES If we're repainting the entire screen, just make everything black
 	if ((_game.platform == Common::kPlatformNES) && width == 256 && height == 240) {
-		byte blackbuf[256 * 240];
+		_system->fillScreen(0x1d);
+		/*byte blackbuf[256 * 240];
 		memset(blackbuf, 0x1d, 256 * 240);
-		_system->copyRectToScreen(blackbuf, pitch, x, y, width, height);
+		_system->copyRectToScreen(blackbuf, pitch, x, y, width, height);*/
 		return;
 	}
 
-	if (_game.version < 7) {
+	if (_game.version < 7 && surfaces_use_zz9k) {
+		OSystemCGX *sys = (OSystemCGX *)_system;
+		const void *text = _textSurface.getBasePtr(x * m, y * m);
+		_system->copyRectToScreen(src, pitch, x, y, width, height);
+		sys->masked_blit = true;
+		sys->mask_color = CHARSET_MASK_TRANSPARENCY;
+		_system->copyRectToScreen(text, pitch, x, y, width, height);
+		sys->masked_blit = false;
+
+		return;
+	}
+	else if (_game.version < 7) {
 		// For The Dig, FT and COMI, we just blit everything to the screen at once.
 		// For older games, things are more complicated. First off, we need to
 		// deal with the _textSurface, which needs to be composited over the

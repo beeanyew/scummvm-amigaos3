@@ -111,19 +111,77 @@ void zz9k_set_clut_mouse_cursor(short hot_x, short hot_y, unsigned short w, unsi
     ZZWRITE16(REG_ZZ_DMA_OP, OP_SPRITE_CLUT_BITMAP);
 }
 
-void zz9k_blit_rect(unsigned int src, unsigned int dest, int x, int y, int src_pitch, int dest_pitch, int w, int h) {
+void zz9k_blit_rect(unsigned int src, unsigned int dest, int x, int y, int src_pitch, int dest_pitch, int w, int h, unsigned char src_bpp, unsigned char dest_bpp, bool reverse) {
     struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
     
-    gfxdata->offset[0] = src;
-    gfxdata->offset[1] = dest;
+    gfxdata->offset[0] = (src & 0x0FFFFFFF);
+    gfxdata->offset[1] = (dest & 0x0FFFFFFF);
     gfxdata->pitch[0] = (unsigned short)src_pitch;
     gfxdata->pitch[1] = (unsigned short)dest_pitch;
     gfxdata->x[0] = (unsigned short)x; gfxdata->y[0] = (unsigned short)y;
     gfxdata->x[1] = (unsigned short)w; gfxdata->y[1] = (unsigned short)h;
+    gfxdata->u8_user[0] = src_bpp;
+    gfxdata->u8_user[1] = dest_bpp;
+    gfxdata->u8_user[2] = reverse;
 
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_BLIT_RECT);
 }
 
+void zz9k_blit_rect_mask(unsigned int src, unsigned int dest, int x, int y, int src_pitch, int dest_pitch, int w, int h, unsigned char mask_color, unsigned char src_bpp, unsigned char dest_bpp) {
+    struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
+
+    gfxdata->offset[0] = (src & 0x0FFFFFFF);
+    gfxdata->offset[1] = (dest & 0x0FFFFFFF);
+    gfxdata->pitch[0] = (unsigned short)src_pitch;
+    gfxdata->pitch[1] = (unsigned short)dest_pitch;
+    gfxdata->x[0] = (unsigned short)x; gfxdata->y[0] = (unsigned short)y;
+    gfxdata->x[1] = (unsigned short)w; gfxdata->y[1] = (unsigned short)h;
+    gfxdata->u8_user[0] = src_bpp;
+    gfxdata->u8_user[1] = dest_bpp;
+    gfxdata->u8_user[2] = 2;
+    gfxdata->u8offset = mask_color;
+
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_BLIT_RECT);
+}
+
+unsigned int zz9k_alloc_surface(unsigned short w, unsigned short h, unsigned char bpp) {
+    struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
+
+    gfxdata->x[0] = w;
+    gfxdata->y[0] = h;
+    gfxdata->u8_user[GFXDATA_U8_COLORMODE] = MNTVA_COLOR_8BIT;
+    gfxdata->u8_user[GFXDATA_U8_DRAWMODE] = bpp;
+    
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_ALLOC_SURFACE);
+    
+    unsigned int p = gfxdata->offset[0];
+    while (!p) {
+        p = gfxdata->offset[0];
+    }
+    //printf("ALLOCED: %.8X\n", p + zz9k_addr);
+    return p + zz9k_addr;
+}
+
+void zz9k_free_surface(unsigned int p_) {
+    if (p_ == 0)
+        return;
+
+    struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
+    unsigned int p = p_ - zz9k_addr;
+
+    printf("Trying to free surface: %.8X\n", p_);
+    gfxdata->offset[0] = p;
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_FREE_SURFACE);
+}
+
 unsigned int zz9k_get_surface_offset(int idx) {
     return zz9k_offsets[idx];
+}
+
+void zz9k_set_16_to_8_colormap(void *src) {
+    struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
+
+    gfxdata->offset[0] = Z3_SCRATCH_ADDR;
+    memcpy((void *)((uint32_t)zz9k_addr + Z3_SCRATCH_ADDR), src, 65536);
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_SET_BPP_CONVERSION_TABLE);
 }

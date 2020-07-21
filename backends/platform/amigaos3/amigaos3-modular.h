@@ -377,6 +377,9 @@ public:
 	void unloadGFXMode();
 	void updatePalette();
 
+	bool masked_blit;
+	unsigned char mask_color;
+
 private:
 	bool _zz9k_available;
 	unsigned int _zz9k_addr, _zz9k_gfxdata;

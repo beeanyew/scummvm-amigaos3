@@ -26,6 +26,8 @@
 // A pointer to the permanent GFXData struct in memory on the ZZ9000 board,
 // used for sharing data between the Amiga side and the RTG board.
 #define Z3_GFXDATA_ADDR 0x3200000
+#define Z3_SCRATCH_ADDR 0x3210000
+#define SURFACE_OFFSET(a) ((unsigned int)a.getPixels() & 0x0FFFFFFF)
 
 #define MNTVA_COLOR_8BIT     0
 #define MNTVA_COLOR_16BIT565 1
@@ -42,7 +44,12 @@ unsigned int zz9k_get_surface_offset(int idx);
 void zz9k_clearbuf(unsigned int addr, unsigned int col, unsigned short w, unsigned short h, unsigned char color_format);
 void zz9k_flip_surface(unsigned int src, unsigned int dest, unsigned short w, unsigned short h);
 void zz9k_set_clut_mouse_cursor(short hot_x, short hot_y, unsigned short w, unsigned short h, const void *bmp, unsigned int key_color);
-void zz9k_blit_rect(unsigned int src, unsigned int dest, int x, int y, int src_pitch, int dest_pitch, int w, int h);
+void zz9k_blit_rect(unsigned int src, unsigned int dest, int x, int y, int src_pitch, int dest_pitch, int w, int h, unsigned char src_bpp = 1, unsigned char dest_bpp = 1, bool reverse = false);
+void zz9k_blit_rect_mask(unsigned int src, unsigned int dest, int x, int y, int src_pitch, int dest_pitch, int w, int h, unsigned char mask_color, unsigned char src_bpp = 1, unsigned char dest_bpp = 1);
+void zz9k_set_16_to_8_colormap(void *src);
+
+unsigned int zz9k_alloc_surface(unsigned short w, unsigned short h, unsigned char bpp = 0);
+void zz9k_free_surface(unsigned int p_);
 
 enum gfx_dma_op {
   OP_NONE,
@@ -68,6 +75,9 @@ enum gfx_acc_op {
   ACC_OP_BUFFER_FLIP,
   ACC_OP_BUFFER_CLEAR,
   ACC_OP_BLIT_RECT,
+  ACC_OP_ALLOC_SURFACE,
+  ACC_OP_FREE_SURFACE,
+  ACC_OP_SET_BPP_CONVERSION_TABLE,
   ACC_OP_NUM,
 };
 

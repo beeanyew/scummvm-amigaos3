@@ -334,6 +334,9 @@ public:
 	 * @param r Rect to flip
 	 */
 	void flipVertical(const Common::Rect &r);
+
+	bool masked_blit = false;
+	unsigned char mask_color;
 };
 
 /**
