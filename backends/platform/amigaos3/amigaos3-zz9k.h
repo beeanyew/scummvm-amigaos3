@@ -79,6 +79,7 @@ enum gfx_dma_op {
   OP_SPRITE_COLOR,
   OP_SPRITE_BITMAP,
   OP_SPRITE_CLUT_BITMAP,
+  OP_ETH_USB_OFFSETS,
   OP_NUM,
 };
 
@@ -117,6 +118,7 @@ struct zz9k_GFXData {
   uint16 pitch[4];
   uint8 u8_user[8];
   uint8 op, mask, minterm, u8offset;
+  uint32 u32_user[8];
   uint8 clut1[768];
   uint8 clut2[768];
   uint8 clut3[768];

@@ -178,11 +178,11 @@ unsigned int zz9k_alloc_surface(unsigned short w, unsigned short h, unsigned cha
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_ALLOC_SURFACE);
     
     unsigned int p = gfxdata->offset[0];
-    if (!p) {
+    /*if (!p) {
         for (int i = 0; i < 20 || p != 0; i++) {
             p = gfxdata->offset[0];    
         }
-    }
+    }*/
     //printf("ALLOCED: %.8X\n", p + zz9k_addr);
     return p + zz9k_addr;
 }

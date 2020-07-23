@@ -114,7 +114,7 @@ OSYSCGX::OSystemCGX(unsigned int zz9k_addr) {
 	if (zz9k_addr != 0) {
 		_zz9k_available = true;
 		surfaces_use_zz9k = true;
-		resources_use_zz9k = false;
+		resources_use_zz9k = true;
 		_zz9k_addr = zz9k_addr;
 		_zz9k_gfxdata = zz9k_addr + Z3_GFXDATA_ADDR;
 	}

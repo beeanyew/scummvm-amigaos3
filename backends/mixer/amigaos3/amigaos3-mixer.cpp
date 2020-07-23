@@ -248,6 +248,7 @@ void AmigaOS3MixerManager::init(int priority) {
 	// Determine the desired output sampling frequency.
 	if (ConfMan.hasKey("output_rate")) {
 		_mixingFrequency = ConfMan.getInt("output_rate");
+		printf("Using output rate %d.\n", _mixingFrequency);
 	}
 
 	if (_mixingFrequency == 0) {
@@ -260,15 +261,17 @@ void AmigaOS3MixerManager::init(int priority) {
 	// sample buffer size of 2048.
 	switch(_mixingFrequency) {
 		case 4000:
-			_sampleCount = 1024;
+			_sampleCount = 256;
 			break;
 		case 8000:
+			_sampleCount = 512;
+			break;
 		case 11025:
-			_sampleCount = 2048;
+			_sampleCount = 1024;
 			break;
 		default:
 		case 22050:
-			_sampleCount = 4096;
+			_sampleCount = 2048;
 			break;
 		case 44100:
 		case 48000:
