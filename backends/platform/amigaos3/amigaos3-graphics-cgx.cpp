@@ -73,6 +73,7 @@ static UBYTE *overlayScreenAddress = 0;
 static UBYTE *gameScreenAddress = 0;
 
 extern bool surfaces_use_zz9k;
+extern bool resources_use_zz9k;
 
 OSYSCGX::OSystemCGX(unsigned int zz9k_addr) {
 	// gDebugLevel = 11;
@@ -113,6 +114,7 @@ OSYSCGX::OSystemCGX(unsigned int zz9k_addr) {
 	if (zz9k_addr != 0) {
 		_zz9k_available = true;
 		surfaces_use_zz9k = true;
+		resources_use_zz9k = false;
 		_zz9k_addr = zz9k_addr;
 		_zz9k_gfxdata = zz9k_addr + Z3_GFXDATA_ADDR;
 	}
@@ -459,11 +461,11 @@ bool OSYSCGX::loadGFXMode() {
 		Graphics::PixelFormat color_format = Graphics::PixelFormat::createFormatCLUT8();
 
 		_screen.init(_videoMode.screenWidth, _videoMode.screenHeight, color_format.bytesPerPixel * _videoMode.screenWidth,
-			(void *)zz9k_alloc_surface(_videoMode.screenWidth, _videoMode.screenHeight), color_format);
+			(void *)zz9k_alloc_surface(_videoMode.screenWidth, _videoMode.screenHeight, color_format.bytesPerPixel), color_format);
 		_tmpscreen.init(_videoMode.screenWidth, _videoMode.screenHeight, color_format.bytesPerPixel * _videoMode.screenWidth,
-			(void *)zz9k_alloc_surface(_videoMode.screenWidth, _videoMode.screenHeight), color_format);
+			(void *)zz9k_alloc_surface(_videoMode.screenWidth, _videoMode.screenHeight, color_format.bytesPerPixel), color_format);
 		_overlayscreen8.init(_videoMode.overlayWidth, _videoMode.overlayHeight, color_format.bytesPerPixel * _videoMode.overlayWidth,
-			(void *)zz9k_alloc_surface(_videoMode.overlayWidth, _videoMode.overlayHeight), color_format);
+			(void *)zz9k_alloc_surface(_videoMode.overlayWidth, _videoMode.overlayHeight, color_format.bytesPerPixel), color_format);
 		_overlayscreen16.init(_videoMode.overlayWidth, _videoMode.overlayHeight, color_format.bytesPerPixel * _videoMode.overlayWidth,
 			(void *)zz9k_alloc_surface(_videoMode.overlayWidth, _videoMode.overlayHeight, _overlayFormat.bytesPerPixel), _overlayFormat);
 
@@ -722,7 +724,7 @@ void OSYSCGX::fillScreen(uint32 col) {
 	if (_screen.getPixels()) {
 		_screenDirty = true;
 		if (_zz9k_available) {
-			zz9k_clearbuf(SURFACE_OFFSET(_screen), col, _videoMode.screenWidth, _videoMode.screenHeight, MNTVA_COLOR_8BIT);
+			zz9k_clearbuf((unsigned int)_screen.getPixels(), col, _videoMode.screenWidth, _videoMode.screenHeight, 1);
 			return;
 		}
 		memset(_screen.getPixels(), (int)col, (_videoMode.bytesPerRow * _videoMode.screenHeight));
@@ -744,12 +746,12 @@ void OSYSCGX::updateScreen() {
 	if (_zz9k_available) {
 		if (_overlayVisible && _overlayDirty) {
 			//WaitTOF();
-			zz9k_flip_surface(SURFACE_OFFSET(_overlayscreen8), ((unsigned int)overlayScreenAddress) - _zz9k_addr, _videoMode.overlayWidth, _videoMode.overlayHeight);
+			zz9k_flip_surface(SURFACE_OFFSET(_overlayscreen8), ((unsigned int)overlayScreenAddress) - _zz9k_addr, _videoMode.overlayWidth, _videoMode.overlayHeight, _overlayscreen8.format.bytesPerPixel);
 			_overlayDirty = false;
 		}
 		else if (_screenDirty) {
 			//WaitTOF();
-			zz9k_flip_surface(SURFACE_OFFSET(_screen), ((unsigned int)gameScreenAddress) - _zz9k_addr, _videoMode.screenWidth, _videoMode.screenHeight);
+			zz9k_flip_surface(SURFACE_OFFSET(_screen), ((unsigned int)gameScreenAddress) - _zz9k_addr, _videoMode.screenWidth, _videoMode.screenHeight, _screen.format.bytesPerPixel);
 			_screenDirty = false;
 		}
 
@@ -953,7 +955,7 @@ void OSYSCGX::clearOverlay() {
 
 	// Set the background to black.
 	if (_zz9k_available) {
-		zz9k_clearbuf(SURFACE_OFFSET(_overlayscreen8), 0, _videoMode.overlayWidth, _videoMode.overlayHeight, MNTVA_COLOR_8BIT);
+		zz9k_clearbuf((unsigned int)_overlayscreen8.getPixels(), 0, _videoMode.overlayWidth, _videoMode.overlayHeight, 1);
 	}
 	else {
 		byte *src = (byte *)_overlayscreen8.getPixels();

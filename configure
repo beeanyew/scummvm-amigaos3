@@ -1218,6 +1218,7 @@ for ac_option in $@; do
 	# End of ignored options.
 	--enable-static)              _static_build=yes      ;;
 	--disable-16bit)              _16bit=no              ;;
+	--enable-16bit)               _16bit=yes             ;;
 	--enable-highres)             _highres=yes           ;;
 	--disable-highres)            _highres=no            ;;
 	--disable-savegame-timestamp) _savegame_timestamp=no ;;
@@ -4048,7 +4049,7 @@ fi
 # Enable 16bit support only for backends which support it
 #
 case $_backend in
-	3ds | android | androidsdl | dingux | dc | gph | iphone | ios7 | maemo | null | openpandora | psp | psp2 | samsungtv | sdl | switch | tizen | webos | wii)
+	m68k-amigaos | 3ds | android | androidsdl | dingux | dc | gph | iphone | ios7 | maemo | null | openpandora | psp | psp2 | samsungtv | sdl | switch | tizen | webos | wii)
 		if test "$_16bit" = auto ; then
 			_16bit=yes
 		else
@@ -4056,7 +4057,7 @@ case $_backend in
 		fi
 		;;
 	*)
-		_16bit=no
+#		_16bit=no
 		;;
 esac
 

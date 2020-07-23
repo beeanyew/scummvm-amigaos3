@@ -40,9 +40,10 @@ unsigned int zz9k_offsets[ZZ9K_OFFSET_NUM] = {
     0x3600000,
 };
 
-static unsigned int zz9k_addr;
+unsigned int zz9k_addr;
 static unsigned int zz9k_gfxdata = Z3_GFXDATA_ADDR;
 unsigned char zz9k_palette[768];
+struct zz9k_GFXData *gxd = NULL;
 
 unsigned int find_zz9k() {
 	struct Library *expansionBase = NULL;
@@ -57,6 +58,7 @@ unsigned int find_zz9k() {
 			zz9k_addr = (unsigned int)cd->cd_BoardAddr;
             zz9k_gfxdata += zz9k_addr;
 			printf("Found ZZ9000 board at address $%X\n", (unsigned int)cd->cd_BoardAddr);
+            gxd = (struct zz9k_GFXData *)zz9k_gfxdata;
 		}
 		else {
 			printf("No ZZ9000 board found.\n");
@@ -67,33 +69,27 @@ unsigned int find_zz9k() {
     return zz9k_addr;
 }
 
-// ZZ9000 register offsets, will always* be backward compatible.
-#define REG_ZZ_DMA_OP 0x5A
-#define REG_ZZ_ACC_OP 0x5C
-
-#define ZZWRITE16(a, b) *(volatile short*)((unsigned int)zz9k_addr+a) = (volatile short)b;
-
-void zz9k_clearbuf(unsigned int addr, unsigned int col, unsigned short w, unsigned short h, unsigned char color_format) {
+void zz9k_clearbuf(unsigned int addr, unsigned int color, unsigned short w, unsigned short h, unsigned char color_format) {
     struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
 
-    gfxdata->offset[0] = addr;
+    gfxdata->offset[0] = (addr & 0x0FFFFFFF);
     gfxdata->x[0] = w; gfxdata->y[0] = h;
     gfxdata->pitch[0] = w;
-    gfxdata->rgb[0] = col;
+    gfxdata->rgb[0] = color;
     gfxdata->u8_user[GFXDATA_U8_COLORMODE] = color_format;
 
     //printf("zz9k clearbuf to %p: @%.8X %dx%d - Size: %d\n", gfxdata, addr, w, h, sizeof(struct zz9k_GFXData));
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_BUFFER_CLEAR);
 }
 
-void zz9k_flip_surface(unsigned int src, unsigned int dest, unsigned short w, unsigned short h) {
+void zz9k_flip_surface(unsigned int src, unsigned int dest, unsigned short w, unsigned short h, unsigned int bpp) {
     struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
 
-    gfxdata->offset[0] = src;
-    gfxdata->offset[1] = dest;
+    gfxdata->offset[0] = (src & 0x0FFFFFFF);
+    gfxdata->offset[1] = (dest & 0x0FFFFFFF);
     gfxdata->x[0] = w; gfxdata->y[0] = h;
     gfxdata->pitch[0] = w;
-    gfxdata->u8_user[GFXDATA_U8_COLORMODE] = MNTVA_COLOR_8BIT;
+    gfxdata->u8_user[GFXDATA_U8_COLORMODE] = bpp;
 
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_BUFFER_FLIP);
 }
@@ -144,33 +140,68 @@ void zz9k_blit_rect_mask(unsigned int src, unsigned int dest, int x, int y, int 
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_BLIT_RECT);
 }
 
+void zz9k_drawline(unsigned int dest, int dest_pitch, int x, int y, int x2, int y2, unsigned int color, unsigned char bpp, int pen_width, int pen_height) {
+    struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
+
+    gfxdata->offset[0] = (dest & 0x0FFFFFFF);
+    gfxdata->pitch[0] = (unsigned short)dest_pitch;
+    gfxdata->x[0] = (unsigned short)x; gfxdata->y[0] = (unsigned short)y;
+    gfxdata->x[1] = (unsigned short)x2; gfxdata->y[1] = (unsigned short)y2;
+    gfxdata->rgb[0] = color;
+    gfxdata->u8_user[0] = bpp;
+    gfxdata->u8_user[1] = (char)pen_width;
+    gfxdata->u8_user[2] = (char)pen_height;
+
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_DRAW_LINE);
+}
+
+void zz9k_fill_rect(uint32 dest, int dest_pitch, int x, int y, int w, int h, unsigned int color, unsigned char bpp) {
+    struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
+
+    gfxdata->offset[0] = (dest & 0x0FFFFFFF);
+    gfxdata->pitch[0] = (unsigned short)dest_pitch;
+    gfxdata->x[0] = (unsigned short)x; gfxdata->y[0] = (unsigned short)y;
+    gfxdata->x[1] = (unsigned short)w; gfxdata->y[1] = (unsigned short)h;
+    gfxdata->rgb[0] = color;
+    gfxdata->u8_user[0] = bpp;
+
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_FILL_RECT);
+}
+
 unsigned int zz9k_alloc_surface(unsigned short w, unsigned short h, unsigned char bpp) {
     struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
 
     gfxdata->x[0] = w;
     gfxdata->y[0] = h;
-    gfxdata->u8_user[GFXDATA_U8_COLORMODE] = MNTVA_COLOR_8BIT;
-    gfxdata->u8_user[GFXDATA_U8_DRAWMODE] = bpp;
+    gfxdata->u8_user[0] = bpp;
     
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_ALLOC_SURFACE);
     
     unsigned int p = gfxdata->offset[0];
-    while (!p) {
-        p = gfxdata->offset[0];
+    if (!p) {
+        for (int i = 0; i < 20 || p != 0; i++) {
+            p = gfxdata->offset[0];    
+        }
     }
     //printf("ALLOCED: %.8X\n", p + zz9k_addr);
     return p + zz9k_addr;
 }
 
-void zz9k_free_surface(unsigned int p_) {
+void zz9k_free_surface(unsigned int p_, const char *src) {
     if (p_ == 0)
         return;
 
     struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
     unsigned int p = p_ - zz9k_addr;
 
-    printf("Trying to free surface: %.8X\n", p_);
     gfxdata->offset[0] = p;
+    gfxdata->u8_user[0] = 0;
+
+    //printf("Trying to free surface: %.8X\n", p_);
+    if (src) {
+        sprintf((char *)gxd->clut2, src);
+        gfxdata->u8_user[0] = 1;
+    }
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_FREE_SURFACE);
 }
 
@@ -184,4 +215,15 @@ void zz9k_set_16_to_8_colormap(void *src) {
     gfxdata->offset[0] = Z3_SCRATCH_ADDR;
     memcpy((void *)((uint32_t)zz9k_addr + Z3_SCRATCH_ADDR), src, 65536);
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_SET_BPP_CONVERSION_TABLE);
+}
+
+void zz9k_debugme(unsigned int off1, unsigned int off2, const char *txt) {
+	gxd->offset[0] = off1;
+	gxd->offset[1] = off2;
+    if (txt) {
+        sprintf((char *)gxd->clut2, txt);
+    } else {
+        sprintf((char *)gxd->clut2, "Debug");
+    }
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_NONE);
 }

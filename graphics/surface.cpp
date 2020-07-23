@@ -45,6 +45,10 @@ static void plotPoint(int x, int y, int color, void *data) {
 }
 
 void Surface::drawLine(int x0, int y0, int x1, int y1, uint32 color) {
+	if (surfaces_use_zz9k) {
+		zz9k_drawline((uint32)getPixels(), pitch, x0, y0, x1, y1, color, format.bytesPerPixel);
+		return;
+	}
 	if (format.bytesPerPixel == 1)
 		Graphics::drawLine(x0, y0, x1, y1, color, plotPoint<byte>, this);
 	else if (format.bytesPerPixel == 2)
@@ -56,6 +60,10 @@ void Surface::drawLine(int x0, int y0, int x1, int y1, uint32 color) {
 }
 
 void Surface::drawThickLine(int x0, int y0, int x1, int y1, int penX, int penY, uint32 color) {
+	if (surfaces_use_zz9k) {
+		zz9k_drawline((uint32)getPixels(), pitch, x0, y0, x1, y1, color, format.bytesPerPixel, penX, penY);
+		return;
+	}
 	if (format.bytesPerPixel == 1)
 		Graphics::drawThickLine(x0, y0, x1, y1, penX, penY, color, plotPoint<byte>, this);
 	else if (format.bytesPerPixel == 2)
@@ -85,7 +93,7 @@ void Surface::create(uint16 width, uint16 height, const PixelFormat &f) {
 
 void Surface::free() {
 	if (surfaces_use_zz9k)
-		zz9k_free_surface((unsigned int)pixels);
+		zz9k_free_surface((unsigned int)pixels, "freeSurface");
 	else
 		::free(pixels);
 	pixels = 0;
@@ -190,6 +198,11 @@ void Surface::hLine(int x, int y, int x2, uint32 color) {
 	if (x2 < x)
 		return;
 
+	if (surfaces_use_zz9k) {
+		zz9k_drawline((uint32)getPixels(), pitch, x, y, x2, y, color, format.bytesPerPixel);
+		return;
+	}
+
 	if (format.bytesPerPixel == 1) {
 		byte *ptr = (byte *)getBasePtr(x, y);
 		memset(ptr, (byte)color, x2 - x + 1);
@@ -216,6 +229,11 @@ void Surface::vLine(int x, int y, int y2, uint32 color) {
 		y = 0;
 	if (y2 >= h)
 		y2 = h - 1;
+
+	if (surfaces_use_zz9k) {
+		zz9k_drawline((uint32)getPixels(), pitch, x, y, x, y2, color, format.bytesPerPixel);
+		return;
+	}
 
 	if (format.bytesPerPixel == 1) {
 		byte *ptr = (byte *)getBasePtr(x, y);
@@ -252,6 +270,11 @@ void Surface::fillRect(Common::Rect r, uint32 color) {
 	int16 height = r.height();
 	bool useMemset = true;
 
+	if (surfaces_use_zz9k) {
+		zz9k_fill_rect((uint32)getPixels(), pitch, r.left, r.top, width, height, color, format.bytesPerPixel);
+		return;
+	}
+
 	if (format.bytesPerPixel == 2) {
 		lineLen *= 2;
 		if ((uint16)color != ((color & 0xff) | (color & 0xff) << 8))
@@ -286,6 +309,15 @@ void Surface::fillRect(Common::Rect r, uint32 color) {
 }
 
 void Surface::frameRect(const Common::Rect &r, uint32 color) {
+	if (surfaces_use_zz9k) {
+		zz9k_drawline((uint32)getPixels(), pitch, r.left, r.top, r.right-1, r.top, color, format.bytesPerPixel);
+		zz9k_drawline((uint32)getPixels(), pitch, r.bottom, r.top, r.right-1, r.bottom, color, format.bytesPerPixel);
+		zz9k_drawline((uint32)getPixels(), pitch, r.left, r.top, r.left, r.bottom, color, format.bytesPerPixel);
+		zz9k_drawline((uint32)getPixels(), pitch, r.right-1, r.top, r.right-1, r.bottom, color, format.bytesPerPixel);
+
+		return;
+	}
+
 	hLine(r.left, r.top, r.right - 1, color);
 	hLine(r.left, r.bottom - 1, r.right - 1, color);
 	vLine(r.left, r.top, r.bottom - 1, color);
@@ -304,14 +336,6 @@ void Surface::move(int dx, int dy, int height) {
 	int x, y;
 
 	if (surfaces_use_zz9k) {
-		uint8 color_format;
-		switch (format.bytesPerPixel) {
-			case 1: color_format = MNTVA_COLOR_8BIT; break;
-			case 2: color_format = MNTVA_COLOR_16BIT565; break;
-			case 4: color_format = MNTVA_COLOR_32BIT; break;
-			default: return; break;
-		}
-
 		if (dy > 0) {
 			zz9k_blit_rect((uint32)pixels, (uint32)pixels, 0, dy, pitch, pitch, w, height, format.bytesPerPixel, format.bytesPerPixel, true);
 		} else if (dy < 0) {

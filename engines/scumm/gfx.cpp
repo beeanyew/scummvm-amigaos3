@@ -50,6 +50,8 @@ extern "C" void asmCopy8Col(byte* dst, int dstPitch, const byte* src, int height
 #endif /* USE_ARM_GFX_ASM */
 
 extern bool surfaces_use_zz9k;
+extern struct zz9k_GFXData *gxd;
+extern unsigned int zz9k_addr;
 
 namespace Scumm {
 
@@ -653,8 +655,9 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 	}
 
 	if (_game.version < 7 && surfaces_use_zz9k) {
-		OSystemCGX *sys = (OSystemCGX *)_system;
+		OSystemCGX *sys = (OSystemCGX *)g_system;
 		const void *text = _textSurface.getBasePtr(x * m, y * m);
+		//zz9k_debugme((uint32)src, (uint32)text);
 		_system->copyRectToScreen(src, pitch, x, y, width, height);
 		sys->masked_blit = true;
 		sys->mask_color = CHARSET_MASK_TRANSPARENCY;
@@ -1034,6 +1037,8 @@ void ScummEngine::redrawBGStrip(int start, int num) {
 	else
 		room = getResourceAddress(rtRoom, _roomResource);
 
+	//zz9k_debugme((uint32)room, (uint32)_virtscr[kMainVirtScreen].getPixels(0,0));
+
 	_gdi->drawBitmap(room + _IM00_offs, &_virtscr[kMainVirtScreen], s, 0, _roomWidth, _virtscr[kMainVirtScreen].h, s, num, 0);
 }
 
@@ -1197,6 +1202,16 @@ static void blit(byte *dst, int dstPitch, const byte *src, int srcPitch, int w, 
 	assert(src != NULL);
 	assert(dst != NULL);
 
+	/*if (surfaces_use_zz9k) {
+		if(ZZCHKADDR(src, dst)) {
+			//zz9k_debugme((unsigned int)dst, (unsigned int)src, "blit in range");
+			zz9k_blit_rect((unsigned int)src, (unsigned int)dst, 0, 0, srcPitch, dstPitch, w, h, bitDepth, bitDepth);
+			return;
+		} else {
+			//zz9k_debugme((unsigned int)dst, (unsigned int)src, "blit out of range");
+		}
+	}*/
+
 	if ((w * bitDepth == srcPitch) && (w * bitDepth == dstPitch)) {
 		memcpy(dst, src, w * h * bitDepth);
 	} else {
@@ -1211,6 +1226,15 @@ static void blit(byte *dst, int dstPitch, const byte *src, int srcPitch, int w, 
 static void fill(byte *dst, int dstPitch, uint16 color, int w, int h, uint8 bitDepth) {
 	assert(h > 0);
 	assert(dst != NULL);
+
+	/*if (surfaces_use_zz9k) {
+		if((unsigned int)dst > zz9k_addr) {
+			zz9k_fill_rect((unsigned int )dst, dstPitch, 0, 0, w, h, color, bitDepth);
+			return;
+		} else {
+			//zz9k_debugme((unsigned int)dst, 0, "fill out of range");
+		}
+	}*/
 
 	if (bitDepth == 2) {
 		do {
@@ -1237,6 +1261,15 @@ static void fill(byte *dst, int dstPitch, uint16 color, int w, int h, uint8 bitD
 #else
 
 static void copy8Col(byte *dst, int dstPitch, const byte *src, int height, uint8 bitDepth) {
+	/*if (surfaces_use_zz9k) {
+		if (ZZCHKADDR(src, dst)) {
+			zz9k_blit_rect((unsigned int)src, (unsigned int)dst, 0, 0, dstPitch, dstPitch, 8, height, bitDepth, bitDepth);
+			return;
+		}
+		else {
+			//zz9k_debugme((unsigned int)dst, (unsigned int)src, "copy8Col fail");
+		}
+	}*/
 
 	do {
 #if defined(SCUMM_NEED_ALIGNMENT)
@@ -1257,6 +1290,15 @@ static void copy8Col(byte *dst, int dstPitch, const byte *src, int height, uint8
 #endif /* USE_ARM_GFX_ASM */
 
 static void clear8Col(byte *dst, int dstPitch, int height, uint8 bitDepth) {
+	/*if (surfaces_use_zz9k) {
+		if ((unsigned int)dst > zz9k_addr) {
+			zz9k_fill_rect((unsigned int )dst, dstPitch, 0, 0, 8, height, 0, bitDepth);
+			return;
+		}
+		else {
+			//zz9k_debugme((unsigned int)dst, 0, "clear8Col fail");
+		}
+	}*/
 	do {
 #if defined(SCUMM_NEED_ALIGNMENT)
 		memset(dst, 0, 8 * bitDepth);

@@ -29,6 +29,13 @@
 #define Z3_SCRATCH_ADDR 0x3210000
 #define SURFACE_OFFSET(a) ((unsigned int)a.getPixels() & 0x0FFFFFFF)
 
+// ZZ9000 register offsets, will always* be backward compatible.
+#define REG_ZZ_DMA_OP 0x5A
+#define REG_ZZ_ACC_OP 0x5C
+
+#define ZZWRITE16(a, b) *(volatile short*)((unsigned int)zz9k_addr+a) = (volatile short)b;
+#define ZZCHKADDR(a, b) (unsigned int)a > zz9k_addr && (unsigned int)b > zz9k_addr
+
 #define MNTVA_COLOR_8BIT     0
 #define MNTVA_COLOR_16BIT565 1
 #define MNTVA_COLOR_32BIT    2
@@ -42,14 +49,19 @@ unsigned int find_zz9k();
 unsigned int zz9k_get_surface_offset(int idx);
 
 void zz9k_clearbuf(unsigned int addr, unsigned int col, unsigned short w, unsigned short h, unsigned char color_format);
-void zz9k_flip_surface(unsigned int src, unsigned int dest, unsigned short w, unsigned short h);
+void zz9k_flip_surface(unsigned int src, unsigned int dest, unsigned short w, unsigned short h, unsigned int bpp);
 void zz9k_set_clut_mouse_cursor(short hot_x, short hot_y, unsigned short w, unsigned short h, const void *bmp, unsigned int key_color);
 void zz9k_blit_rect(unsigned int src, unsigned int dest, int x, int y, int src_pitch, int dest_pitch, int w, int h, unsigned char src_bpp = 1, unsigned char dest_bpp = 1, bool reverse = false);
 void zz9k_blit_rect_mask(unsigned int src, unsigned int dest, int x, int y, int src_pitch, int dest_pitch, int w, int h, unsigned char mask_color, unsigned char src_bpp = 1, unsigned char dest_bpp = 1);
 void zz9k_set_16_to_8_colormap(void *src);
 
-unsigned int zz9k_alloc_surface(unsigned short w, unsigned short h, unsigned char bpp = 0);
-void zz9k_free_surface(unsigned int p_);
+void zz9k_drawline(unsigned int dest, int dest_pitch, int x, int y, int x2, int y2, unsigned int color, unsigned char bpp, int pen_width = 1, int pen_height = 1);
+void zz9k_fill_rect(uint32 dest, int dest_pitch, int x, int y, int w, int h, unsigned int color, unsigned char bpp);
+
+unsigned int zz9k_alloc_surface(unsigned short w, unsigned short h, unsigned char bpp);
+void zz9k_free_surface(unsigned int p_, const char *src = 0);
+
+void zz9k_debugme(unsigned int off1, unsigned int off2, const char *txt = 0);
 
 enum gfx_dma_op {
   OP_NONE,
@@ -78,6 +90,8 @@ enum gfx_acc_op {
   ACC_OP_ALLOC_SURFACE,
   ACC_OP_FREE_SURFACE,
   ACC_OP_SET_BPP_CONVERSION_TABLE,
+  ACC_OP_DRAW_LINE,
+  ACC_OP_FILL_RECT,
   ACC_OP_NUM,
 };
 

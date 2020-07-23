@@ -145,6 +145,8 @@ public:
 		void setOffHeap();
 		void setOnHeap();
 		bool isOffHeap() const;
+
+		byte _zz9k_resource, pad[3];
 	};
 
 	/**
