@@ -692,20 +692,18 @@ void OSYSCGX::copyRectToScreen(const void *buf, int pitch, int x, int y, int w, 
 	assert(w > 0 && x + w <= _videoMode.screenWidth);
 #endif
 
-	if (_zz9k_available) {
+	if (_zz9k_available && (unsigned int)buf > _zz9k_addr) {
 		unsigned int src = (unsigned int)buf;
-		if ((unsigned int)buf > _zz9k_addr) {
-			// Both surfaces are in video RAM, so let the ZZ9000 handle it.
-			if (masked_blit) {
-				zz9k_blit_rect_mask(src, SURFACE_OFFSET(_screen), x, y, pitch, _videoMode.bytesPerRow, w, h, mask_color);
-			}
-			else {
-				zz9k_blit_rect(src, SURFACE_OFFSET(_screen), x, y, pitch, _videoMode.bytesPerRow, w, h);
-			}
-
-			_screenDirty = true;
-			return;
+		// Both surfaces are in video RAM, so let the ZZ9000 handle it.
+		if (masked_blit) {
+			zz9k_blit_rect_mask(src, SURFACE_OFFSET(_screen), x, y, pitch, _videoMode.bytesPerRow, w, h, mask_color);
 		}
+		else {
+			zz9k_blit_rect(src, SURFACE_OFFSET(_screen), x, y, pitch, _videoMode.bytesPerRow, w, h);
+		}
+
+		_screenDirty = true;
+		return;
 	}
 
 	byte *dst = ((byte *)_screen.getBasePtr(0, 0)) + _videoMode.bytesPerRow * y + x;
@@ -737,6 +735,7 @@ void OSYSCGX::updateScreen() {
 #endif
 
 	UBYTE *src;
+
 
 	// Check whether the palette was changed.
 	if (_paletteDirtyEnd != 0) {
@@ -998,7 +997,7 @@ void OSYSCGX::copyRectToOverlay(const void *buf, int pitch, int x, int y, int w,
 		return;
 	}
 
-	if (_zz9k_available || (uint32_t)buf > _zz9k_addr) {
+	if (_zz9k_available && (uint32_t)buf > _zz9k_addr) {
 		byte *src = (byte *)((uint32_t)buf);
 		byte *dst = (byte *)_overlayscreen8.getPixels();
 

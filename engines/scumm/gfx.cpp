@@ -56,6 +56,7 @@ extern unsigned int zz9k_addr;
 namespace Scumm {
 
 static void blit(byte *dst, int dstPitch, const byte *src, int srcPitch, int w, int h, uint8 bitDepth);
+static void masked_blit(byte *dst, int dstPitch, byte *src, int srcPitch, int w, int h, uint8 bitDepth, uint32 mask_color, uint16 *_16bitpal = NULL);
 static void fill(byte *dst, int dstPitch, uint16 color, int w, int h, uint8 bitDepth);
 #ifndef USE_ARM_GFX_ASM
 static void copy8Col(byte *dst, int dstPitch, const byte *src, int height, uint8 bitDepth);
@@ -207,6 +208,7 @@ static const TransitionEffect transitionEffects[6] = {
 
 };
 
+
 Gdi::Gdi(ScummEngine *vm) : _vm(vm) {
 	_numZBuffer = 0;
 	memset(_imgBufOffs, 0, sizeof(_imgBufOffs));
@@ -329,13 +331,7 @@ void GdiV2::roomChanged(byte *roomptr) {
 
 
 void ScummEngine::initScreens(int b, int h) {
-	int i;
 	int adj = 0;
-
-	for (i = 0; i < 3; i++) {
-		_res->nukeResource(rtBuffer, i + 1);
-		_res->nukeResource(rtBuffer, i + 5);
-	}
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	if (_townsScreen) {
@@ -349,31 +345,53 @@ void ScummEngine::initScreens(int b, int h) {
 	}
 #endif
 
-	if (!getResourceAddress(rtBuffer, 4)) {
-		// Since the size of screen 3 is fixed, there is no need to reallocate
-		// it if its size changed.
-		// Not sure what it is good for, though. I think it may have been used
-		// in pre-V7 for the games messages (like 'Pause', Yes/No dialogs,
-		// version display, etc.). I don't know about V7, maybe the same is the
-		// case there. If so, we could probably just remove it completely.
+	if (_game.version >= 6) {
+		Common::Rect clear_rect(0, 0, _screenWidth, _screenHeight);
+		// Use the mostly unused Unk virtual screen for blast objects for V6+.
+
+		initVirtScreen(kUnkVirtScreen, adj, _screenWidth, _screenHeight, false, false); // Use for blast objects
+		_virtscr[kUnkVirtScreen].fillRect(clear_rect, CHARSET_MASK_TRANSPARENCY);
+		if (_game.version == 6) {
+			initVirtScreen(kTextVirtScreen, adj, _screenWidth, b, false, false);
+			initVirtScreen(kVerbVirtScreen, h + adj, _screenWidth, _screenHeight - h - adj, false, false);
+		}
 		if (_game.version >= 7) {
-			initVirtScreen(kUnkVirtScreen, (_screenHeight / 2) - 10, _screenWidth, 13, false, false);
-		} else {
-			initVirtScreen(kUnkVirtScreen, 80, _screenWidth, 13, false, false);
+			// V7+ games only used the main virtual screen, so let's repurpose these
+			// three "unused" screens as blast text and verb coin layers.
+			
+			initVirtScreen(kTextVirtScreen, adj, _screenWidth, _screenHeight, false, false);
+			initVirtScreen(kVerbVirtScreen, adj, _screenWidth, _screenHeight, false, false);
+			_virtscr[kTextVirtScreen].fillRect(clear_rect, CHARSET_MASK_TRANSPARENCY);
+			_virtscr[kVerbVirtScreen].fillRect(clear_rect, CHARSET_MASK_TRANSPARENCY);
 		}
 	}
+	else {
+		if (!_virtscr[kUnkVirtScreen].getBasePtr(0,0)) {
+			// Since the size of screen 3 is fixed, there is no need to reallocate
+			// it if its size changed.
+			// Not sure what it is good for, though. I think it may have been used
+			// in pre-V7 for the games messages (like 'Pause', Yes/No dialogs,
+			// version display, etc.). I don't know about V7, maybe the same is the
+			// case there. If so, we could probably just remove it completely.
+			if (_game.version >= 7) {
+				initVirtScreen(kUnkVirtScreen, (_screenHeight / 2) - 10, _screenWidth, 13, false, false);
+			} else {
+				initVirtScreen(kUnkVirtScreen, 80, _screenWidth, 13, false, false);
+			}
+		}
 
-	if ((_game.platform == Common::kPlatformNES) && (h != _screenHeight)) {
-		// This is a hack to shift the whole screen downwards to match the original.
-		// Otherwise we would have to do lots of coordinate adjustments all over
-		// the code.
-		adj = 16;
-		initVirtScreen(kUnkVirtScreen, 0, _screenWidth, adj, false, false);
+		if ((_game.platform == Common::kPlatformNES) && (h != _screenHeight)) {
+			// This is a hack to shift the whole screen downwards to match the original.
+			// Otherwise we would have to do lots of coordinate adjustments all over
+			// the code.
+			adj = 16;
+			initVirtScreen(kUnkVirtScreen, 0, _screenWidth, adj, false, false);
+		}
+		initVirtScreen(kTextVirtScreen, adj, _screenWidth, b, false, false);
+		initVirtScreen(kVerbVirtScreen, h + adj, _screenWidth, _screenHeight - h - adj, false, false);
 	}
-
 	initVirtScreen(kMainVirtScreen, b + adj, _screenWidth, h - b, true, true);
-	initVirtScreen(kTextVirtScreen, adj, _screenWidth, b, false, false);
-	initVirtScreen(kVerbVirtScreen, h + adj, _screenWidth, _screenHeight - h - adj, false, false);
+
 	_screenB = b;
 	_screenH = h;
 
@@ -386,7 +404,7 @@ void ScummEngine::initVirtScreen(VirtScreenNumber slot, int top, int width, int 
 	int size;
 
 	assert(height >= 0);
-	assert((int)slot >= 0 && (int)slot < 4);
+	assert((int)slot >= 0 && (int)slot < kNumVirtScreens);
 
 	if (_game.version >= 7) {
 		if (slot == kMainVirtScreen && (_roomHeight != 0))
@@ -399,7 +417,7 @@ void ScummEngine::initVirtScreen(VirtScreenNumber slot, int top, int width, int 
 	vs->h = height;
 	vs->hasTwoBuffers = twobufs;
 	vs->xstart = 0;
-	vs->backBuf = NULL;
+
 	if (_game.features & GF_16BIT_COLOR)
 		vs->format = Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0);
 	else
@@ -427,15 +445,33 @@ void ScummEngine::initVirtScreen(VirtScreenNumber slot, int top, int width, int 
 		}
 	}
 
-	_res->createResource(rtBuffer, slot + 1, size);
-	vs->setPixels(getResourceAddress(rtBuffer, slot + 1));
-	if (_game.platform == Common::kPlatformNES)
-		memset(vs->getBasePtr(0, 0), 0x1d, size);	// reset background (MM NES)
-	else
-	memset(vs->getBasePtr(0, 0), 0, size);	// reset background
+	// No need to reallocate the memory if the allocated screen is the same
+	// size in bytes as before.
+	if (size != vs->byte_size) {
+		if (vs->getBasePtr(0,0) && !surfaces_use_zz9k)
+			free(vs->getBasePtr(0,0));
+		byte *ptr = (!surfaces_use_zz9k) ? (byte *)malloc(size) : (byte *)zz9k_alloc_mem(size);
+		vs->setPixels(ptr);
 
-	if (twobufs) {
-		vs->backBuf = _res->createResource(rtBuffer, slot + 5, size);
+		if (vs->backBuf && !surfaces_use_zz9k)
+			free(vs->backBuf);
+
+		if (twobufs) {
+			vs->backBuf = (!surfaces_use_zz9k) ? (byte *)malloc(size) : (byte *)zz9k_alloc_mem(size);
+		}
+		else
+			vs->backBuf = NULL;
+		
+		vs->byte_size = size;
+	}
+
+	if (!surfaces_use_zz9k) {
+		if (_game.platform == Common::kPlatformNES)
+			memset(vs->getBasePtr(0, 0), 0x1d, size);	// reset background (MM NES)
+		else
+			memset(vs->getBasePtr(0, 0), 0, size);		// reset background
+	} else {
+		zz9k_clearbuf((uint32)vs->getBasePtr(0,0), (_game.platform == Common::kPlatformNES) ? 0x1D : 0x00, vs->byte_size, 1, 1);
 	}
 
 	if (slot != 3) {
@@ -507,6 +543,28 @@ void ScummEngine::markRectAsDirty(VirtScreenNumber virt, int left, int right, in
 	}
 }
 
+// Just to avoid unecessary code duplication, since this part seems pretty
+// final as it is.
+#define DRAW_DIRTY_SCREEN_FUNCTION_BODY  \
+	/* Update game area ("stage") */ \
+	if (camera._last.x != camera._cur.x || (_game.version >= 7 && (camera._cur.y != camera._last.y))) { \
+		/* Camera moved: redraw everything */ \
+		VirtScreen *vs = &_virtscr[kMainVirtScreen]; \
+		drawStripToScreen(vs, 0, vs->w, 0, vs->h); \
+		vs->setDirtyRange(vs->h, 0); \
+	} else { \
+		updateDirtyScreen(kMainVirtScreen); \
+	} \
+	\
+	/* Handle shaking */ \
+	if (_shakeEnabled) { \
+		_shakeFrame = (_shakeFrame + 1) % NUM_SHAKE_POSITIONS; \
+		_system->setShakePos(0, shake_positions[_shakeFrame]); \
+	} else if (!_shakeEnabled &&_shakeFrame != 0) { \
+		_shakeFrame = 0; \
+		_system->setShakePos(0, 0); \
+	}
+
 /**
  * Update all dirty screen areas. This method blits all of the internal engine
  * graphics to the actual display, as needed. In addition, the 'shaking'
@@ -519,57 +577,48 @@ void ScummEngine::drawDirtyScreenParts() {
 	// Update the conversation area (at the top of the screen)
 	updateDirtyScreen(kTextVirtScreen);
 
-	// Update game area ("stage")
-	if (camera._last.x != camera._cur.x || (_game.version >= 7 && (camera._cur.y != camera._last.y))) {
-		// Camera moved: redraw everything
-		VirtScreen *vs = &_virtscr[kMainVirtScreen];
-		drawStripToScreen(vs, 0, vs->w, 0, vs->h);
-		vs->setDirtyRange(vs->h, 0);
-	} else {
-		updateDirtyScreen(kMainVirtScreen);
-	}
-
-	// Handle shaking
-	if (_shakeEnabled) {
-		_shakeFrame = (_shakeFrame + 1) % NUM_SHAKE_POSITIONS;
-		_system->setShakePos(0, shake_positions[_shakeFrame]);
-	} else if (!_shakeEnabled &&_shakeFrame != 0) {
-		_shakeFrame = 0;
-		_system->setShakePos(0, 0);
-	}
+	DRAW_DIRTY_SCREEN_FUNCTION_BODY
 }
 
 void ScummEngine_v6::drawDirtyScreenParts() {
-	// For the Full Throttle credits to work properly, the blast
-	// texts have to be drawn before the blast objects. Unless
-	// someone can think of a better way to achieve this effect.
+	_layers[1] = &_textSurface;
+	_layers[0] = (!_blastObjectQueuePos) ? NULL : &_virtscr[kUnkVirtScreen];
+	int processed_upper_actors = 0;
 
+	// For the Full Throttle credits to work properly, the blast
+	// texts have to be drawn before the blast objects.
 	if (_game.version >= 7 && VAR(VAR_BLAST_ABOVE_TEXT) == 1) {
-		drawBlastTexts();
-		drawBlastObjects();
-		if (_game.version == 8) {
-			// Does this case ever happen? We need to draw the
-			// actor over the blast object, so we're forced to
-			// also draw it over the subtitles.
-			processUpperActors();
-		}
-	} else {
-		drawBlastObjects();
-		if (_game.version == 8) {
-			// Do this before drawing blast texts. Subtitles go on
-			// top of the CoMI verb coin, e.g. when Murray is
-			// talking to himself early in the game.
-			processUpperActors();
-		}
-		drawBlastTexts();
+		_layers[0] = (!_blastTextQueuePos) ? NULL : &_virtscr[kTextVirtScreen];
+		_layers[1] = (!_blastObjectQueuePos) ? NULL : &_virtscr[kUnkVirtScreen];
+		_layers[3] = NULL;
+	} else if (_game.version >= 7) {
+		_layers[0] = (!_blastObjectQueuePos) ? NULL : &_virtscr[kUnkVirtScreen];
+		_layers[1] = NULL;
+		_layers[3] = (!_blastTextQueuePos) ? NULL : &_virtscr[kTextVirtScreen];
+	}
+	else {
+		updateDirtyScreen(kVerbVirtScreen);
+		updateDirtyScreen(kTextVirtScreen);
 	}
 
-	// Call the original method.
-	ScummEngine::drawDirtyScreenParts();
+	// 
+	if (_game.version == 8) {
+		processed_upper_actors = processUpperActors();
+		_layers[2] = (!processed_upper_actors) ? NULL : &_virtscr[kVerbVirtScreen];
+	}
+
+	// Render any blast objects/texts to their respective layers.
+	drawBlastObjects();
+	drawBlastTexts();
+
+	DRAW_DIRTY_SCREEN_FUNCTION_BODY
 
 	// Remove all blasted objects/text again.
 	removeBlastTexts();
 	removeBlastObjects();
+
+	if (processed_upper_actors)
+		removeUpperActors();
 }
 
 /**
@@ -622,7 +671,7 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 	// Some paranoia checks
 	assert(top >= 0 && bottom <= vs->h);
 	assert(x >= 0 && width <= vs->pitch);
-	assert(_textSurface.getPixels());
+	assert(_textSurface.getBasePtr(0, 0));
 
 	// Perform some clipping
 	if (width > vs->w - x)
@@ -641,32 +690,15 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 
 	const void *src = vs->getPixels(x, top);
 	int m = _textSurfaceMultiplier;
-	int vsPitch;
 	int pitch = vs->pitch;
-	vsPitch = vs->pitch - width * vs->format.bytesPerPixel;
 
 	// In MM NES If we're repainting the entire screen, just make everything black
 	if ((_game.platform == Common::kPlatformNES) && width == 256 && height == 240) {
 		_system->fillScreen(0x1d);
-		/*byte blackbuf[256 * 240];
-		memset(blackbuf, 0x1d, 256 * 240);
-		_system->copyRectToScreen(blackbuf, pitch, x, y, width, height);*/
 		return;
 	}
 
-	if (_game.version < 7 && surfaces_use_zz9k) {
-		OSystemCGX *sys = (OSystemCGX *)g_system;
-		const void *text = _textSurface.getBasePtr(x * m, y * m);
-		//zz9k_debugme((uint32)src, (uint32)text);
-		_system->copyRectToScreen(src, pitch, x, y, width, height);
-		sys->masked_blit = true;
-		sys->mask_color = CHARSET_MASK_TRANSPARENCY;
-		_system->copyRectToScreen(text, pitch, x, y, width, height);
-		sys->masked_blit = false;
-
-		return;
-	}
-	else if (_game.version < 7) {
+	if (_game.version < 7) {
 		// For The Dig, FT and COMI, we just blit everything to the screen at once.
 		// For older games, things are more complicated. First off, we need to
 		// deal with the _textSurface, which needs to be composited over the
@@ -687,65 +719,24 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		if (_game.platform == Common::kPlatformFMTowns) {
 			towns_drawStripToScreen(vs, x, y, x, top, width, height);
 			return;
-		} else
-#endif
-		if (_outputPixelFormat.bytesPerPixel == 2) {
-			const byte *srcPtr = (const byte *)src;
-			const byte *textPtr = (byte *)_textSurface.getBasePtr(x * m, y * m);
-			byte *dstPtr = _compositeBuf;
-
-			for (int h = 0; h < height * m; ++h) {
-				for (int w = 0; w < width * m; ++w) {
-					uint16 tmp = *textPtr++;
-					if (tmp == CHARSET_MASK_TRANSPARENCY) {
-						tmp = READ_UINT16(srcPtr);
-						WRITE_UINT16(dstPtr, tmp); dstPtr += 2;
-					} else if (_game.heversion != 0) {
-						error ("16Bit Color HE Game using old charset");
-					} else {
-						WRITE_UINT16(dstPtr, _16BitPalette[tmp]); dstPtr += 2;
-					}
-					srcPtr += vs->format.bytesPerPixel;
-				}
-				srcPtr += vsPitch;
-				textPtr += _textSurface.pitch - width * m;
-			}
-		} else {
-#ifdef USE_ARM_GFX_ASM
-			asmDrawStripToScreen(height, width, text, src, _compositeBuf, vs->pitch, width, _textSurface.pitch);
-#else
-			// We blit four pixels at a time, for improved performance.
-			const uint32 *src32 = (const uint32 *)src;
-			uint32 *dst32 = (uint32 *)_compositeBuf;
-
-			vsPitch >>= 2;
-
-			const uint32 *text32 = (const uint32 *)text;
-			const int textPitch = (_textSurface.pitch - width * m) >> 2;
-			for (int h = height * m; h > 0; --h) {
-				for (int w = width * m; w > 0; w -= 4) {
-					uint32 temp = *text32++;
-
-					// Generate a byte mask for those text pixels (bytes) with
-					// value CHARSET_MASK_TRANSPARENCY. In the end, each byte
-					// in mask will be either equal to 0x00 or 0xFF.
-					// Doing it this way avoids branches and bytewise operations,
-					// at the cost of readability ;).
-					uint32 mask = temp ^ CHARSET_MASK_TRANSPARENCY_32;
-					mask = (((mask & 0x7f7f7f7f) + 0x7f7f7f7f) | mask) & 0x80808080;
-					mask = ((mask >> 7) + 0x7f7f7f7f) ^ 0x80808080;
-
-					// The following line is equivalent to this code:
-					//   *dst32++ = (*src32++ & mask) | (temp & ~mask);
-					// However, some compilers can generate somewhat better
-					// machine code for this equivalent statement:
-					*dst32++ = ((temp ^ *src32++) & mask) ^ temp;
-				}
-				src32 += vsPitch;
-				text32 += textPitch;
-			}
-#endif
 		}
+#endif
+#ifdef USE_ARM_GFX_ASM
+		asmDrawStripToScreen(height, width, text, src, _compositeBuf, vs->pitch, width, _textSurface.pitch);
+#else
+		byte *srcPtr = (byte *)((size_t)src);
+		byte *textPtr = (byte *)_textSurface.getBasePtr(x * m, y * m);
+		byte bpp = vs->format.bytesPerPixel;
+		byte *dst = _compositeBuf;
+
+		blit(dst, width * bpp, srcPtr, vs->pitch, width, height, bpp);
+	
+#endif
+		if (_game.heversion == 0) { // If 16-bit color HE game using old charset, draw nothing.
+		masked_blit(dst, width * bpp, textPtr, vs->pitch, width, height, bpp,
+			(bpp == 4) ? CHARSET_MASK_TRANSPARENCY_32 : CHARSET_MASK_TRANSPARENCY, _16BitPalette);
+		}
+
 		src = _compositeBuf;
 		pitch = width * vs->format.bytesPerPixel;
 
@@ -791,6 +782,66 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 
 		}
 	}
+
+	// Finally blit the whole thing to the screen
+	_system->copyRectToScreen(src, pitch, x, y, width, height);
+}
+
+void ScummEngine_v6::drawStripToScreen(VirtScreen *vs, int x, int width, int top, int bottom) {
+
+	// Short-circuit if nothing has to be drawn
+	if (bottom <= top || top >= vs->h)
+		return;
+
+	// Some paranoia checks
+	assert(top >= 0 && bottom <= vs->h);
+	assert(x >= 0 && width <= vs->pitch);
+	assert(_textSurface.getBasePtr(0, 0));
+
+	// Perform some clipping
+	if (width > vs->w - x)
+		width = vs->w - x;
+	if (top < _screenTop)
+		top = _screenTop;
+	if (bottom > _screenTop + _screenHeight)
+		bottom = _screenTop + _screenHeight;
+
+	// Convert the vertical coordinates to real screen coords
+	int y = vs->topline + top - _screenTop;
+	int height = bottom - top;
+
+	if (width <= 0 || height <= 0)
+		return;
+
+	const void *src = vs->getPixels(x, top);
+	int pitch = vs->pitch;
+
+	byte *srcPtr = (byte *)((size_t)src);
+	byte bpp = vs->format.bytesPerPixel;
+	byte *dst = _compositeBuf;
+
+#ifdef USE_ARM_GFX_ASM
+	asmDrawStripToScreen(height, width, text, src, _compositeBuf, vs->pitch, width, _textSurface.pitch);
+#else
+	blit(dst, width * bpp, srcPtr, vs->pitch, width, height, bpp);
+#endif
+	for (int i = 0; i < kNumVirtScreens; i++) {
+		if (!_layers[i])
+			continue;
+		
+		if (_layers[i]->number == kTextVirtScreen) {
+			if (_game.heversion == 0) {
+				masked_blit(dst, width * bpp, (byte *)_layers[i]->getBasePtr(x, y), _layers[i]->pitch,
+					width, height, bpp, (bpp == 4) ? CHARSET_MASK_TRANSPARENCY_32 : CHARSET_MASK_TRANSPARENCY, _16BitPalette);
+			}
+		} else {
+			masked_blit(dst, width * bpp, (byte *)_layers[i]->getBasePtr(x, y), _layers[i]->pitch,
+				width, height, bpp, (bpp == 4) ? CHARSET_MASK_TRANSPARENCY_32 : CHARSET_MASK_TRANSPARENCY, _16BitPalette);
+		}
+	}
+
+	src = _compositeBuf;
+	pitch = width * vs->format.bytesPerPixel;
 
 	// Finally blit the whole thing to the screen
 	_system->copyRectToScreen(src, pitch, x, y, width, height);
@@ -1037,8 +1088,6 @@ void ScummEngine::redrawBGStrip(int start, int num) {
 	else
 		room = getResourceAddress(rtRoom, _roomResource);
 
-	//zz9k_debugme((uint32)room, (uint32)_virtscr[kMainVirtScreen].getPixels(0,0));
-
 	_gdi->drawBitmap(room + _IM00_offs, &_virtscr[kMainVirtScreen], s, 0, _roomWidth, _virtscr[kMainVirtScreen].h, s, num, 0);
 }
 
@@ -1155,7 +1204,7 @@ void ScummEngine::restoreCharsetBg() {
 			if (_game.platform == Common::kPlatformNES)
 				memset(screenBuf, 0x1d, vs->h * vs->pitch);
 			else
-			memset(screenBuf, 0, vs->h * vs->pitch);
+				memset(screenBuf, 0, vs->h * vs->pitch);
 		}
 
 		if (vs->hasTwoBuffers) {
@@ -1175,7 +1224,7 @@ void ScummEngine::clearTextSurface() {
 		_townsScreen->fillLayerRect(1, 0, 0, _textSurface.w, _textSurface.h, 0);
 #endif
 
-	fill((byte *)_textSurface.getPixels(),  _textSurface.pitch,
+	fill((byte *)_textSurface.getBasePtr(0, 0),  _textSurface.pitch,
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 		_game.platform == Common::kPlatformFMTowns ? 0 :
 #endif
@@ -1202,15 +1251,12 @@ static void blit(byte *dst, int dstPitch, const byte *src, int srcPitch, int w, 
 	assert(src != NULL);
 	assert(dst != NULL);
 
-	/*if (surfaces_use_zz9k) {
+	if (surfaces_use_zz9k) {
 		if(ZZCHKADDR(src, dst)) {
-			//zz9k_debugme((unsigned int)dst, (unsigned int)src, "blit in range");
 			zz9k_blit_rect((unsigned int)src, (unsigned int)dst, 0, 0, srcPitch, dstPitch, w, h, bitDepth, bitDepth);
 			return;
-		} else {
-			//zz9k_debugme((unsigned int)dst, (unsigned int)src, "blit out of range");
 		}
-	}*/
+	}
 
 	if ((w * bitDepth == srcPitch) && (w * bitDepth == dstPitch)) {
 		memcpy(dst, src, w * h * bitDepth);
@@ -1223,18 +1269,51 @@ static void blit(byte *dst, int dstPitch, const byte *src, int srcPitch, int w, 
 	}
 }
 
+static void masked_blit(byte *dst, int dstPitch, byte *src, int srcPitch, int w, int h, uint8 bitDepth, uint32 mask_color, uint16 *_16bitpal) {
+	assert(w > 0);
+	assert(h > 0);
+	assert(src != NULL);
+	assert(dst != NULL);
+
+	if (surfaces_use_zz9k) {
+		if(ZZCHKADDR(src, dst)) {
+			zz9k_blit_rect_mask((unsigned int)src, (unsigned int)dst, 0, 0, srcPitch, dstPitch, w, h, CHARSET_MASK_TRANSPARENCY, bitDepth, bitDepth);
+			return;
+		}
+	}
+
+	for (int y = 0; y < h; y++) {
+		for (int x = 0; x < w; x++) {
+			switch(bitDepth) {
+			case 1:
+				if (src[x] == mask_color)
+					continue;
+				dst[x] = src[x];
+				break;
+			case 2:
+				if (src[x] == mask_color)
+					continue;
+				// Avoid endian issues by using memcpy.
+				memcpy(((uint16 *)dst)+x, _16bitpal + src[x], 2);
+				break;
+			case 4:
+				// I'm not even sure if this is used for anything?
+				if (((uint32 *)src)[x] == mask_color)
+					continue;
+				((uint32 *)dst)[x] = ((uint32 *)src)[x];
+				break;
+			default:
+				break;
+			}
+		}
+		src += srcPitch;
+		dst += dstPitch;
+	}
+}
+
 static void fill(byte *dst, int dstPitch, uint16 color, int w, int h, uint8 bitDepth) {
 	assert(h > 0);
 	assert(dst != NULL);
-
-	/*if (surfaces_use_zz9k) {
-		if((unsigned int)dst > zz9k_addr) {
-			zz9k_fill_rect((unsigned int )dst, dstPitch, 0, 0, w, h, color, bitDepth);
-			return;
-		} else {
-			//zz9k_debugme((unsigned int)dst, 0, "fill out of range");
-		}
-	}*/
 
 	if (bitDepth == 2) {
 		do {
@@ -1261,15 +1340,12 @@ static void fill(byte *dst, int dstPitch, uint16 color, int w, int h, uint8 bitD
 #else
 
 static void copy8Col(byte *dst, int dstPitch, const byte *src, int height, uint8 bitDepth) {
-	/*if (surfaces_use_zz9k) {
+	if (surfaces_use_zz9k) {
 		if (ZZCHKADDR(src, dst)) {
 			zz9k_blit_rect((unsigned int)src, (unsigned int)dst, 0, 0, dstPitch, dstPitch, 8, height, bitDepth, bitDepth);
 			return;
 		}
-		else {
-			//zz9k_debugme((unsigned int)dst, (unsigned int)src, "copy8Col fail");
-		}
-	}*/
+	}
 
 	do {
 #if defined(SCUMM_NEED_ALIGNMENT)
@@ -1290,15 +1366,12 @@ static void copy8Col(byte *dst, int dstPitch, const byte *src, int height, uint8
 #endif /* USE_ARM_GFX_ASM */
 
 static void clear8Col(byte *dst, int dstPitch, int height, uint8 bitDepth) {
-	/*if (surfaces_use_zz9k) {
+	if (surfaces_use_zz9k) {
 		if ((unsigned int)dst > zz9k_addr) {
 			zz9k_fill_rect((unsigned int )dst, dstPitch, 0, 0, 8, height, 0, bitDepth);
 			return;
 		}
-		else {
-			//zz9k_debugme((unsigned int)dst, 0, "clear8Col fail");
-		}
-	}*/
+	}
 	do {
 #if defined(SCUMM_NEED_ALIGNMENT)
 		memset(dst, 0, 8 * bitDepth);
@@ -1306,12 +1379,12 @@ static void clear8Col(byte *dst, int dstPitch, int height, uint8 bitDepth) {
 		if (g_scumm->_game.platform == Common::kPlatformNES) {
 			memset(dst, 0x1d, 8);
 		} else {
-		((uint32 *)dst)[0] = 0;
-		((uint32 *)dst)[1] = 0;
-		if (bitDepth == 2) {
-			((uint32 *)dst)[2] = 0;
-			((uint32 *)dst)[3] = 0;
-		}
+			((uint32*)dst)[0] = 0;
+			((uint32*)dst)[1] = 0;
+			if (bitDepth == 2) {
+				((uint32*)dst)[2] = 0;
+				((uint32*)dst)[3] = 0;
+			}
 		}
 #endif
 		dst += dstPitch;
@@ -3900,7 +3973,7 @@ void ScummEngine::fadeOut(int effect) {
 		if (_game.platform == Common::kPlatformNES)
 			memset(vs->getPixels(0, 0), 0x1d, vs->pitch * vs->h);
 		else
-		memset(vs->getPixels(0, 0), 0, vs->pitch * vs->h);
+			memset(vs->getPixels(0, 0), 0, vs->pitch * vs->h);
 
 		// Fade to black with the specified effect, if any.
 		switch (effect) {

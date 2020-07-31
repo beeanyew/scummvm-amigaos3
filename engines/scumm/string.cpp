@@ -199,7 +199,7 @@ void ScummEngine_v6::drawBlastTexts() {
 							c += *buf++ * 256;
 						}
 					}
-					_charset->printChar(c, true);
+					_charset->printChar(c, true, &_virtscr[kTextVirtScreen]);
 				}
 			} while (c && c != '\n');
 
@@ -214,7 +214,9 @@ void ScummEngine_v6::removeBlastTexts() {
 	int i;
 
 	for (i = 0; i < _blastTextQueuePos; i++) {
-		restoreBackground(_blastTextQueue[i].rect);
+		//restoreBackground(_blastTextQueue[i].rect);
+		_virtscr[kTextVirtScreen].fillRect(_blastTextQueue[i].rect, CHARSET_MASK_TRANSPARENCY);
+		markRectAsDirty(kMainVirtScreen, _blastTextQueue[i].rect);
 	}
 	_blastTextQueuePos = 0;
 }
@@ -439,7 +441,7 @@ bool ScummEngine::newLine() {
 		_nextLeft -= _charset->getStringWidth(0, _charsetBuffer + _charsetBufPos) / 2;
 		if (_nextLeft < 0)
 			_nextLeft = _game.version >= 6 ? _string[0].xpos : 0;
-	} else if (_game.version >= 4 && _game.version < 7 && _language == Common::HE_ISR) {
+	} else if (_game.version >= 4 && _game.version < 7 && _game.heversion == 0 && _language == Common::HE_ISR) {
 		if (_game.id == GID_MONKEY && _charset->getCurID() == 4) {
 			_nextLeft = _screenWidth - _charset->getStringWidth(0, _charsetBuffer + _charsetBufPos) - _nextLeft;
 		}
@@ -700,7 +702,7 @@ void ScummEngine::CHARSET_1() {
 		_nextLeft -= _charset->getStringWidth(0, _charsetBuffer + _charsetBufPos) / 2;
 		if (_nextLeft < 0)
 			_nextLeft = _game.version >= 6 ? _string[0].xpos : 0;
-	} else if (_game.version >= 4 && _game.version < 7 && _language == Common::HE_ISR) {
+	} else if (_game.version >= 4 && _game.version < 7 && _game.heversion == 0 && _language == Common::HE_ISR) {
 		if (_game.id == GID_MONKEY && _charset->getCurID() == 4) {
 			_nextLeft = _screenWidth - _charset->getStringWidth(0, _charsetBuffer + _charsetBufPos) - _nextLeft;
 		}
@@ -710,7 +712,7 @@ void ScummEngine::CHARSET_1() {
 
 	int c = 0;
 
-	if (_game.version >= 4 && _game.version < 7 && _language == Common::HE_ISR) {
+	if (_game.version >= 4 && _game.version < 7 && _game.heversion == 0 && _language == Common::HE_ISR) {
 		fakeBidiString(_charsetBuffer + _charsetBufPos, true);
 	}
 
@@ -983,7 +985,7 @@ void ScummEngine::drawString(int a, const byte *msg) {
 
 	convertMessageToString(msg, buf, sizeof(buf));
 
-	if (_game.version >= 4 && _game.version < 7 && _language == Common::HE_ISR) {
+	if (_game.version >= 4 && _game.version < 7 && _game.heversion == 0 && _language == Common::HE_ISR) {
 		fakeBidiString(buf, false);
 	}
 
@@ -1046,7 +1048,7 @@ void ScummEngine::drawString(int a, const byte *msg) {
 
 	if (_charset->_center) {
 		_charset->_left -= _charset->getStringWidth(a, buf) / 2;
-	} else if (_game.version >= 4 && _game.version < 7 && _game.id != GID_SAMNMAX && _language == Common::HE_ISR) {
+	} else if (_game.version >= 4 && _game.version < 7 && _game.heversion == 0 && _game.id != GID_SAMNMAX && _language == Common::HE_ISR) {
 		// Ignore INDY4 verbs (but allow dialogue)
 		if (_game.id != GID_INDY4 || buf[0] == 127) {
 			int ll = 0;
@@ -1114,7 +1116,7 @@ void ScummEngine::drawString(int a, const byte *msg) {
 			case 8:
 				if (_charset->_center) {
 					_charset->_left = _charset->_startLeft - _charset->getStringWidth(a, buf + i);
-				} else if (_game.version >= 4 && _game.version < 7 && _language == Common::HE_ISR) {
+				} else if (_game.version >= 4 && _game.version < 7 && _game.heversion == 0 && _language == Common::HE_ISR) {
 					// Skip control characters as they might contain '\0' which results in incorrect string width.
 					int ll = 0;
 					byte *ltext = buf + i;
@@ -1476,7 +1478,7 @@ void ScummEngine::initCharset(int charsetno) {
 
 
 #ifdef ENABLE_SCUMM_7_8
-static STDCALL int indexCompare(const void *p1, const void *p2) {
+static int indexCompare(const void *p1, const void *p2) {
 	const ScummEngine_v7::LangIndexNode *i1 = (const ScummEngine_v7::LangIndexNode *) p1;
 	const ScummEngine_v7::LangIndexNode *i2 = (const ScummEngine_v7::LangIndexNode *) p2;
 

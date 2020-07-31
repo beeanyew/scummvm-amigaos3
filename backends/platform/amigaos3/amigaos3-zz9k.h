@@ -59,6 +59,7 @@ void zz9k_drawline(unsigned int dest, int dest_pitch, int x, int y, int x2, int 
 void zz9k_fill_rect(uint32 dest, int dest_pitch, int x, int y, int w, int h, unsigned int color, unsigned char bpp);
 
 unsigned int zz9k_alloc_surface(unsigned short w, unsigned short h, unsigned char bpp);
+unsigned int zz9k_alloc_mem(unsigned int size);
 void zz9k_free_surface(unsigned int p_, const char *src = 0);
 
 void zz9k_debugme(unsigned int off1, unsigned int off2, const char *txt = 0);

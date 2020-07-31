@@ -92,6 +92,8 @@ protected:
 	bool _forcedWaitForMessage;
 	bool _skipVideo;
 
+	VirtScreen *_layers[kNumVirtScreens];
+
 public:
 	ScummEngine_v6(OSystem *syst, const DetectorResult &dr);
 
@@ -112,6 +114,7 @@ protected:
 
 	void palManipulateInit(int resID, int start, int end, int time) override;
 	void drawDirtyScreenParts() override;
+	void drawStripToScreen(VirtScreen *vs, int x, int width, int top, int bottom) override;
 
 	int getStackList(int *args, uint maxnum);
 	int popRoomAndObj(int *room);
@@ -142,9 +145,9 @@ protected:
 
 	void enqueueObject(int objectNumber, int objectX, int objectY, int objectWidth,
 	                   int objectHeight, int scaleX, int scaleY, int image, int mode);
-	void drawBlastObjects();
-	void drawBlastObject(BlastObject *eo);
-	void removeBlastObjects();
+	void drawBlastObjects(VirtScreen *vs = NULL);
+	void drawBlastObject(BlastObject *eo, VirtScreen *vs_ = NULL);
+	void removeBlastObjects(VirtScreen *vs_ = NULL);
 	void removeBlastObject(BlastObject *eo);
 
 	void clearDrawQueues() override;

@@ -40,7 +40,7 @@ unsigned int zz9k_offsets[ZZ9K_OFFSET_NUM] = {
     0x3600000,
 };
 
-unsigned int zz9k_addr;
+unsigned int zz9k_addr = 0;
 static unsigned int zz9k_gfxdata = Z3_GFXDATA_ADDR;
 unsigned char zz9k_palette[768];
 struct zz9k_GFXData *gxd = NULL;
@@ -169,21 +169,24 @@ void zz9k_fill_rect(uint32 dest, int dest_pitch, int x, int y, int w, int h, uns
 }
 
 unsigned int zz9k_alloc_surface(unsigned short w, unsigned short h, unsigned char bpp) {
-    struct zz9k_GFXData* gfxdata = (struct zz9k_GFXData*)((uint32)zz9k_gfxdata);
-
-    gfxdata->x[0] = w;
-    gfxdata->y[0] = h;
-    gfxdata->u8_user[0] = bpp;
+    gxd->x[0] = w;
+    gxd->y[0] = h;
+    gxd->u8_user[0] = bpp;
+    gxd->u8_user[1] = 0;
     
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_ALLOC_SURFACE);
     
-    unsigned int p = gfxdata->offset[0];
-    /*if (!p) {
-        for (int i = 0; i < 20 || p != 0; i++) {
-            p = gfxdata->offset[0];    
-        }
-    }*/
-    //printf("ALLOCED: %.8X\n", p + zz9k_addr);
+    unsigned int p = gxd->offset[0];
+    return p + zz9k_addr;
+}
+
+unsigned int zz9k_alloc_mem(unsigned int size) {
+    gxd->offset[1] = size;
+    gxd->u8_user[1] = 1;
+    
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_ALLOC_SURFACE);
+    
+    unsigned int p = gxd->offset[0];
     return p + zz9k_addr;
 }
 

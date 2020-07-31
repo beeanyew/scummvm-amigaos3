@@ -82,10 +82,14 @@
 #include "scumm/imuse/drivers/fmtowns.h"
 
 #include "backends/audiocd/audiocd.h"
+#include "backends/platform/amigaos3/amigaos3-zz9k.h"
+#include "backends/platform/amigaos3/amigaos3-modular.h"
 
 #include "audio/mixer.h"
 
 using Common::File;
+
+extern bool surfaces_use_zz9k;
 
 namespace Scumm {
 
@@ -286,6 +290,7 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 	_hePalettes = NULL;
 	_hePaletteSlot = 0;
 	_16BitPalette = NULL;
+	_compositeBuf = NULL;
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	_townsScreen = 0;
 #ifdef USE_RGB_COLOR
@@ -575,12 +580,6 @@ ScummEngine::ScummEngine(OSystem *syst, const DetectorResult &dr)
 #endif
 #endif
 
-	// Allocate gfx compositing buffer (not needed for V7/V8 games).
-	if (_game.version < 7)
-		_compositeBuf = (byte *)malloc(_screenWidth * _screenHeight * sizeMult);
-	else
-		_compositeBuf = 0;
-
 	_herculesBuf = 0;
 	if (_renderMode == Common::kRenderHercA || _renderMode == Common::kRenderHercG) {
 		_herculesBuf = (byte *)malloc(kHercWidth * kHercHeight);
@@ -625,7 +624,8 @@ ScummEngine::~ScummEngine() {
 	delete _costumeLoader;
 	delete _costumeRenderer;
 
-	_textSurface.free();
+	if (!surfaces_use_zz9k)
+		_textSurface.free();
 
 	free(_shadowPalette);
 	free(_verbPalette);
@@ -646,10 +646,22 @@ ScummEngine::~ScummEngine() {
 	free(_classData);
 	free(_arraySlot);
 
-	free(_compositeBuf);
+	if (!surfaces_use_zz9k)
+		free(_compositeBuf);
 	free(_herculesBuf);
 
 	free(_16BitPalette);
+
+	if (!surfaces_use_zz9k) {
+		for (int i = 0; i < kNumVirtScreens; i++) {
+			if (_virtscr[i].getBasePtr(0,0)) {
+				free(_virtscr[i].getBasePtr(0,0));
+				_virtscr[i].setPixels((void *)0);
+			}
+			if (_virtscr[i].backBuf)
+				free(_virtscr[i].backBuf);
+		}
+	}
 
 #ifndef DISABLE_TOWNS_DUAL_LAYER_MODE
 	delete _townsScreen;
@@ -781,6 +793,11 @@ int ScummEngine_v0::DelayCalculateDelta() {
 
 ScummEngine_v6::ScummEngine_v6(OSystem *syst, const DetectorResult &dr)
 	: ScummEngine(syst, dr) {
+	
+	for (int i = 0; i < kNumVirtScreens; i++) {
+		_layers[i] = NULL;
+	}
+
 	_blastObjectQueuePos = 0;
 	memset(_blastObjectQueue, 0, sizeof(_blastObjectQueue));
 	_blastTextQueuePos = 0;
@@ -1419,6 +1436,7 @@ void ScummEngine::setupScumm() {
 	}
 
 	int maxHeapThreshold = -1;
+	int minHeapThreshold = 6 * 1024 * 1024;
 
 	if (_game.features & GF_16BIT_COLOR) {
 		// 16bit color games require double the memory, due to increased resource sizes.
@@ -1426,15 +1444,44 @@ void ScummEngine::setupScumm() {
 	} else if (_game.features & GF_NEW_COSTUMES) {
 		// Since the new costumes are very big, we increase the heap limit, to avoid having
 		// to constantly reload stuff from the data files.
-		maxHeapThreshold = 6 * 1024 * 1024;
+		maxHeapThreshold = 16 * 1024 * 1024;
+		if (_game.id == GID_CMI) {
+			// A minimum heap threshold of 400000 causes COMI to very often swap out and
+			// reload resources when something in the current room is animating, can be
+			// observed for instance when Wally cries in the very first scene.
+			// The game is also very often over the max heap threshold due to loaded
+			// resources that can't be easily discarded. This will obviously not work very
+			// well on a host with less than 6MB of RAM, but it would've broken on there
+			// regardless since resource usage is very often above 6MB even with resources
+			// being discarded too often.
+			maxHeapThreshold = 32 * 1024 * 1024;
+			minHeapThreshold = 24 * 1024 * 1024;
+		}
 	} else {
-		maxHeapThreshold = 550000;
+		maxHeapThreshold = 16 * 1024 * 1024;
 	}
 
-	_res->setHeapThreshold(400000, maxHeapThreshold);
+	_res->setHeapThreshold(minHeapThreshold, maxHeapThreshold);
+	OSystemCGX *sys = (OSystemCGX *)g_system;
+	
 
-	free(_compositeBuf);
-	_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
+	if (_compositeBuf && !sys->_zz9k_available)
+		free(_compositeBuf);
+	
+	if (_game.version < 7) {
+		if (sys->_zz9k_available) {
+			_compositeBuf = (byte *)zz9k_alloc_surface(_screenWidth * _textSurfaceMultiplier, _screenHeight * _textSurfaceMultiplier, _outputPixelFormat.bytesPerPixel);
+		}
+		else
+			_compositeBuf = (byte *)malloc(_screenWidth * _textSurfaceMultiplier * _screenHeight * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
+	}
+	else {
+		if (sys->_zz9k_available) {
+			_compositeBuf = (byte *)zz9k_alloc_surface((_screenWidth * 2) * _textSurfaceMultiplier, (_screenHeight * 2) * _textSurfaceMultiplier, _outputPixelFormat.bytesPerPixel);
+		}
+		else
+			_compositeBuf = (byte *)malloc((_screenWidth * 2) * _textSurfaceMultiplier * (_screenHeight * 2) * _textSurfaceMultiplier * _outputPixelFormat.bytesPerPixel);
+	}
 }
 
 #ifdef ENABLE_SCUMM_7_8
@@ -1764,6 +1811,9 @@ void ScummEngine_v4::resetScumm() {
 
 void ScummEngine_v6::resetScumm() {
 	ScummEngine::resetScumm();
+	for (int i = 0; i < kNumVirtScreens; i++) {
+		_layers[i] = NULL;
+	}
 	setDefaultCursor();
 }
 

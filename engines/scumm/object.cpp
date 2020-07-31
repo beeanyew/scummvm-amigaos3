@@ -1367,13 +1367,12 @@ int ScummEngine::getObjectImageCount(int object) {
 }
 
 #ifdef ENABLE_SCUMM_7_8
-
 int ScummEngine_v8::getObjectIdFromOBIM(const byte *obim) {
 	// In V8, IMHD has no obj_id, but rather a name string. We map the name
 	// back to an object id using a table derived from the DOBJ resource.
 	const ImageHeader *imhd = (const ImageHeader *)findResourceData(MKTAG('I','M','H','D'), obim);
 	ObjectNameId *found = (ObjectNameId *)bsearch(imhd->v8.name, _objectIDMap, _objectIDMapSize,
-					sizeof(ObjectNameId), strcmp_wrapper);
+					sizeof(ObjectNameId), (int (*)(const void*, const void*))strcmp);
 	assert(found);
 	return found->id;
 }
@@ -1698,23 +1697,23 @@ void ScummEngine_v6::enqueueObject(int objectNumber, int objectX, int objectY, i
 	eo->mode = mode;
 }
 
-void ScummEngine_v6::drawBlastObjects() {
+void ScummEngine_v6::drawBlastObjects(VirtScreen *vs) {
 	BlastObject *eo;
 	int i;
 
 	eo = _blastObjectQueue;
 	for (i = 0; i < _blastObjectQueuePos; i++, eo++) {
-		drawBlastObject(eo);
+		drawBlastObject(eo, vs);
 	}
 }
 
-void ScummEngine_v6::drawBlastObject(BlastObject *eo) {
+void ScummEngine_v6::drawBlastObject(BlastObject *eo, VirtScreen *vs_) {
 	VirtScreen *vs;
 	const byte *bomp, *ptr;
 	int objnum;
 	BompDrawData bdd;
 
-	vs = &_virtscr[kMainVirtScreen];
+	vs = (vs_) ? vs_ : &_virtscr[kUnkVirtScreen];
 
 	assertRange(30, eo->number, _numGlobalObjects - 1, "blast object");
 
@@ -1777,16 +1776,20 @@ void ScummEngine_v6::drawBlastObject(BlastObject *eo) {
 
 	drawBomp(bdd);
 
-	markRectAsDirty(vs->number, bdd.x, bdd.x + bdd.srcwidth, bdd.y, bdd.y + bdd.srcheight);
+	markRectAsDirty(kMainVirtScreen, bdd.x, bdd.x + bdd.srcwidth, bdd.y, bdd.y + bdd.srcheight);
 }
 
-void ScummEngine_v6::removeBlastObjects() {
+void ScummEngine_v6::removeBlastObjects(VirtScreen *vs_) {
 	BlastObject *eo;
 	int i;
 
+	VirtScreen *vs = (vs_) ? vs_ : &_virtscr[kUnkVirtScreen];
+
 	eo = _blastObjectQueue;
 	for (i = 0; i < _blastObjectQueuePos; i++, eo++) {
-		removeBlastObject(eo);
+		//removeBlastObject(eo);
+		vs->fillRect(_blastObjectQueue[i].rect, CHARSET_MASK_TRANSPARENCY);
+		markRectAsDirty(kMainVirtScreen, _blastObjectQueue[i].rect);
 	}
 	_blastObjectQueuePos = 0;
 }

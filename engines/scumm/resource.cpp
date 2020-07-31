@@ -40,8 +40,7 @@
 #include "scumm/util.h"
 #include "scumm/verbs.h"
 
-#include "backends/platform/amigaos3/amigaos3-zz9k.h"
-bool resources_use_zz9k;
+bool resources_use_zz9k = false;
 
 namespace Scumm {
 
@@ -659,9 +658,9 @@ int ScummEngine::loadResource(ResType type, ResId idx) {
 				warning("loadResource(%s,%d): resource is too short", nameOfResType(type), idx);
 				size = 0;
 			} else {
-			size = _fileHandle->readUint16LE();
-			_fileHandle->seek(-2, SEEK_CUR);
-		}
+				size = _fileHandle->readUint16LE();
+				_fileHandle->seek(-2, SEEK_CUR);
+			}
 		}
 	} else if (_game.features & GF_SMALL_HEADER) {
 		if (_game.version == 4)
@@ -833,19 +832,12 @@ byte *ResourceManager::createResource(ResType type, ResId idx, uint32 size) {
 
 	expireResources(size);
 
-	byte *ptr;
-	if (resources_use_zz9k && size > 64 && (type == rtBuffer || type == rtRoom || type == rtRoomImage)) {
-		ptr = (byte *)zz9k_alloc_surface(size + SAFETY_AREA, 1, 1);
-		_types[type][idx]._zz9k_resource = 1;
+	byte *ptr = new byte[size + SAFETY_AREA];
+	if (ptr == NULL) {
+		error("createResource(%s,%d): Out of memory while allocating %d", nameOfResType(type), idx, size);
 	}
-	else {
-		ptr = new byte[size + SAFETY_AREA];
-		if (ptr == NULL) {
-			error("createResource(%s,%d): Out of memory while allocating %d", nameOfResType(type), idx, size);
-		}
 
-		memset(ptr, 0, size + SAFETY_AREA);
-	}
+	memset(ptr, 0, size + SAFETY_AREA);
 	_allocatedSize += size;
 
 	_types[type][idx]._address = ptr;
@@ -861,28 +853,15 @@ ResourceManager::Resource::Resource() {
 	_status = 0;
 	_roomno = 0;
 	_roomoffs = 0;
-	_zz9k_resource = 0;
 }
 
 ResourceManager::Resource::~Resource() {
-	if (_zz9k_resource && _address) {
-		zz9k_free_surface((unsigned int)_address, "~Resource");
-		_zz9k_resource = 0;
-	}
-	else if (_address) {
-		delete[] _address;
-	}
+	delete[] _address;
 	_address = 0;
 }
 
 void ResourceManager::Resource::nuke() {
-	if (_zz9k_resource && _address) {
-		zz9k_free_surface((unsigned int)_address, "nukeResource");
-		_zz9k_resource = 0;
-	}
-	else if (_address) {
-		delete[] _address;
-	}
+	delete[] _address;
 	_address = 0;
 	_size = 0;
 	_flags = 0;
@@ -1335,7 +1314,7 @@ void ScummEngine_v8::readGlobalObjects() {
 	// bsearch on it. For this we (ab)use strcmp, which works fine
 	// since the table entries start with a string.
 	qsort(_objectIDMap, _objectIDMapSize, sizeof(ObjectNameId),
-			strcmp_wrapper);
+			(int (*)(const void*, const void*))strcmp);
 }
 
 void ScummEngine_v7::readGlobalObjects() {

@@ -98,8 +98,12 @@ static const char *lastPathComponent(const Common::String &str) {
 	while (offset > 0 && (p[offset - 1] != '/' && p[offset - 1] != ':'))
 		offset--;
 
+	if (!offset)
+		return 0;
+
 	return p + offset;
 }
+
 
 /**
  * Obtain the FileInfoBlock protection value for this FSNode,
@@ -432,7 +436,7 @@ bool AmigaOS3FilesystemNode::getChildren(AbstractFSList &myList, ListMode mode, 
 					if ((mode == Common::FSNode::kListAll) ||
 						(EAD_IS_DRAWER(ead) && (mode == Common::FSNode::kListDirectoriesOnly)) ||
 						(EAD_IS_FILE(ead) && (mode == Common::FSNode::kListFilesOnly))) {
-						Common::String full_path = _sPath;
+						Common::String full_path(_sPath);
 						full_path += (char *)ead->ed_Name;
 
 						BPTR lock = Lock((STRPTR)full_path.c_str(), SHARED_LOCK);
@@ -463,25 +467,16 @@ AbstractFSNode *AmigaOS3FilesystemNode::getParent() const {
 	debug(8, "AmigaOS3FilesystemNode::getParent()");
 #endif
 
-	if (!_bIsDirectory) {
-		return 0;
-	}
+	const char *start = _sPath.c_str();
+	const char *end = ::lastPathComponent(_sPath);
 
-	if (_pFileLock == 0) {
-		return new AmigaOS3FilesystemNode(*this);
-	}
+	if (!end)
+		return new AmigaOS3FilesystemNode();
 
-	AmigaOS3FilesystemNode *node;
+	Common::String parent_path = Common::String(start, end - start);
+	AmigaOS3FilesystemNode *p = new AmigaOS3FilesystemNode(parent_path);
 
-	BPTR parentDir = ParentDir(_pFileLock);
-	if (parentDir) {
-		node = new AmigaOS3FilesystemNode(parentDir);
-		UnLock(parentDir);
-	} else {
-		node = new AmigaOS3FilesystemNode();
-	}
-
-	return node;
+	return p;
 }
 
 bool AmigaOS3FilesystemNode::isReadable() const {

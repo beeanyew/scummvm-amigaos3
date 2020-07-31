@@ -32,6 +32,7 @@
 #include "backends/fs/fs-factory.h"
 #include "backends/saves/default/default-saves.h"
 #include "backends/timer/amigaos3/amigaos3-timer.h"
+#include "backends/timer/default/default-timer.h"
 
 #include "common/debug.h"
 #include "common/scummsys.h"
@@ -42,6 +43,7 @@
 #include <proto/timer.h>
 
 static struct timeval t0;
+extern bool default_timer;
 
 OSystem_AmigaOS3_Modular::OSystem_AmigaOS3_Modular() {
 	_inited = false;
@@ -201,7 +203,10 @@ void OSystem_AmigaOS3_Modular::initBackend() {
 	strncat(pathName, "/", 1);
 	_savefileManager = new DefaultSaveFileManager(pathName);
 
-	_timerManager = new AmigaOS3TimerManager();
+	if (default_timer)
+		_timerManager = new DefaultTimerManager();
+	else
+		_timerManager = new AmigaOS3TimerManager();
 
 	// Setup and start mixer
 	_mixerManager = new AmigaOS3MixerManager();
@@ -343,20 +348,19 @@ extern struct timerequest *TimerIOReq;
 void OSystem_AmigaOS3_Modular::delayMillis(uint msecs) {
 // Temporary workaround, using the same IO request from multiple threads
 //  could be dangerous.
-//
-//	if (msecs) {
-//		if (msecs < 1000) {
-//			TimerIOReq->tr_time.tv_secs = 0;
-//			TimerIOReq->tr_time.tv_micro = msecs * 1000;
-//		} else {
-//			TimerIOReq->tr_time.tv_secs = msecs / 1000;
-//			TimerIOReq->tr_time.tv_micro = (msecs % 1000) * 1000;
-//		}
-//		TimerIOReq->tr_node.io_Command = TR_ADDREQUEST;
 
-//		DoIO(&TimerIOReq->tr_node);
-//		WaitIO(&TimerIOReq->tr_node);
-//	}
+	/*if (msecs) {
+		if (msecs < 1000) {
+			TimerIOReq->tr_time.tv_secs = 0;
+			TimerIOReq->tr_time.tv_micro = msecs * 1000;
+		} else {
+			TimerIOReq->tr_time.tv_secs = msecs / 1000;
+			TimerIOReq->tr_time.tv_micro = (msecs % 1000) * 1000;
+		}
+		TimerIOReq->tr_node.io_Command = TR_ADDREQUEST;
+		DoIO(&TimerIOReq->tr_node);
+		WaitIO(&TimerIOReq->tr_node);
+	}*/
 
 	// 1 Tick is 50Hz, 20ms
 	Delay(msecs / 20);
