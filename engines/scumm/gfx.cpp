@@ -492,7 +492,7 @@ VirtScreen *ScummEngine::findVirtScreen(int y) {
 }
 
 void ScummEngine::markRectAsDirty(VirtScreenNumber virt, int left, int right, int top, int bottom, int dirtybit) {
-	VirtScreen *vs = &_virtscr[virt];
+    VirtScreen *vs = (virt == kTextSurface) ? &_textSurface : &_virtscr[virt];
 	int lp, rp;
 
 	if (left > right || top > bottom)
@@ -732,9 +732,11 @@ void ScummEngine::drawStripToScreen(VirtScreen *vs, int x, int width, int top, i
 		blit(dst, width * bpp, srcPtr, vs->pitch, width, height, bpp);
 	
 #endif
-		if (_game.heversion == 0) { // If 16-bit color HE game using old charset, draw nothing.
-		masked_blit(dst, width * bpp, textPtr, vs->pitch, width, height, bpp,
-			(bpp == 4) ? CHARSET_MASK_TRANSPARENCY_32 : CHARSET_MASK_TRANSPARENCY, _16BitPalette);
+		// 16-bit color HE games and the NES version of Maniac Mansion do not
+		// use the text surface.
+		if (_game.heversion == 0 && _game.platform != Common::kPlatformNES) {
+			masked_blit(dst, width * bpp, textPtr, vs->pitch, width, height, bpp,
+				(bpp == 4) ? CHARSET_MASK_TRANSPARENCY_32 : CHARSET_MASK_TRANSPARENCY, _16BitPalette);
 		}
 
 		src = _compositeBuf;
@@ -1181,30 +1183,44 @@ void ScummEngine::restoreCharsetBg() {
 		_charset->_str.left = -1;
 		_charset->_left = -1;
 
-		// Restore background on the whole text area. This code is based on
-		// restoreBackground(), but was changed to only restore those parts which are
-		// currently covered by the charset mask.
+		int i;
+		int w = 8;
+		int start = 0;
 
-		VirtScreen *vs = &_virtscr[_charset->_textScreenID];
+		// Clear out any dirty rects that have been marked on the text surface.
+		VirtScreen *vs = &_textSurface;
 		if (!vs->h)
 			return;
 
-		markRectAsDirty(vs->number, Common::Rect(vs->w, vs->h), USAGE_BIT_RESTORED);
-
-		byte *screenBuf = vs->getPixels(0, 0);
-
-		if (vs->hasTwoBuffers && _currentRoom != 0 && isLightOn()) {
-			if (vs->number != kMainVirtScreen) {
-				// Restore from back buffer
-				const byte *backBuf = vs->getBackPixels(0, 0);
-				blit(screenBuf, vs->pitch, backBuf, vs->pitch, vs->w, vs->h, vs->format.bytesPerPixel);
+		for (i = 0; i < _gdi->_numStrips; i++) {
+			if (vs->bdirty[i]) {
+				const int top = vs->tdirty[i];
+				const int bottom = vs->bdirty[i];
+				vs->tdirty[i] = vs->h;
+				vs->bdirty[i] = 0;
+				if (i != (_gdi->_numStrips - 1) && vs->bdirty[i + 1] == bottom && vs->tdirty[i + 1] == top) {
+					w += 8;
+					continue;
+				}
+				debug(9, "Restore charset BG rect: %d,%d-%d,%d", start * 8, top, (start * 8) + w, bottom);
+				Common::Rect r(start * 8, top, (start * 8) + w, bottom);
+				vs->fillRect(r, CHARSET_MASK_TRANSPARENCY);
+				markRectAsDirty(kMainVirtScreen, r, USAGE_BIT_RESTORED);
+				w = 8;
 			}
-		} else {
-			// Clear area
+			start = i + 1;
+		}
+
+		if (_game.version <= 3) {
+			vs = &_virtscr[kTextVirtScreen];
+			byte *screenBuf = vs->getPixels(0, 0);
+			
 			if (_game.platform == Common::kPlatformNES)
 				memset(screenBuf, 0x1d, vs->h * vs->pitch);
 			else
-				memset(screenBuf, 0, vs->h * vs->pitch);
+				memset(screenBuf, 0x00, vs->h * vs->pitch);
+
+			markRectAsDirty(kTextVirtScreen, Common::Rect(0, 0, vs->w, vs->h), USAGE_BIT_RESTORED);
 		}
 
 		if (vs->hasTwoBuffers) {

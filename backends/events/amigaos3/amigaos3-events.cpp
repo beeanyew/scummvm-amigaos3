@@ -59,7 +59,7 @@
 #define RAWKEY_Y 0x15
 #define RAWKEY_Z 0x31
 
-bool default_timer = true;
+bool default_timer = false;
 
 AmigaOS3EventSource::AmigaOS3EventSource() {
 #ifndef NDEBUG
