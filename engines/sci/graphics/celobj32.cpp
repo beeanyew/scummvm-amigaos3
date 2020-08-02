@@ -950,7 +950,7 @@ CelObjView::CelObjView(const GuiResourceId viewId, const int16 loopNo, const int
 	const int cacheIndex = searchCache(_info, &cacheInsertIndex);
 	if (cacheIndex != -1) {
 		CelCacheEntry &entry = (*_cache)[cacheIndex];
-		const CelObjView *const cachedCelObj = dynamic_cast<CelObjView *>(entry.celObj.get());
+		const CelObjView *const cachedCelObj = static_cast<CelObjView *>(entry.celObj.get());
 		if (cachedCelObj == nullptr) {
 			error("Expected a CelObjView in cache slot %d", cacheIndex);
 		}
@@ -1157,7 +1157,7 @@ CelObjPic::CelObjPic(const GuiResourceId picId, const int16 celNo) {
 	const int cacheIndex = searchCache(_info, &cacheInsertIndex);
 	if (cacheIndex != -1) {
 		CelCacheEntry &entry = (*_cache)[cacheIndex];
-		const CelObjPic *const cachedCelObj = dynamic_cast<CelObjPic *>(entry.celObj.get());
+		const CelObjPic *const cachedCelObj = static_cast<CelObjPic *>(entry.celObj.get());
 		if (cachedCelObj == nullptr) {
 			error("Expected a CelObjPic in cache slot %d", cacheIndex);
 		}

@@ -371,7 +371,7 @@ void ScreenItem::calcRects(const Plane &plane) {
 
 				mulinc(temp, celToScreenX, Ratio());
 
-				CelObjPic *celObjPic = dynamic_cast<CelObjPic *>(_celObj.get());
+				CelObjPic *celObjPic = static_cast<CelObjPic *>(_celObj.get());
 				if (celObjPic == nullptr) {
 					error("Expected a CelObjPic");
 				}
@@ -417,7 +417,7 @@ void ScreenItem::calcRects(const Plane &plane) {
 					temp.right -= 1;
 				}
 
-				CelObjPic *celObjPic = dynamic_cast<CelObjPic *>(_celObj.get());
+				CelObjPic *celObjPic = static_cast<CelObjPic *>(_celObj.get());
 				if (celObjPic == nullptr) {
 					error("Expected a CelObjPic");
 				}
