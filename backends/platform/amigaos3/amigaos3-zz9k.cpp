@@ -230,3 +230,25 @@ void zz9k_debugme(unsigned int off1, unsigned int off2, const char *txt) {
     }
     ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_NONE);
 }
+
+void zz9k_decompress(unsigned int dest, uint16 pitch, uint16 x, uint16 y, uint16 w, uint16 h, unsigned char codec) {
+    gxd->u8_user[0] = codec;
+    gxd->x[0] = x;
+    gxd->y[0] = y;
+    gxd->x[1] = w;
+    gxd->y[1] = h;
+    gxd->offset[0] = (uint32)(dest & 0x0FFFFFFF);
+    gxd->pitch[0] = pitch;
+
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_DECOMPRESS);
+}
+
+void zz9k_decompress_audio(unsigned int dest, unsigned int input_size, unsigned char codec, unsigned char channels, unsigned char sub_codec) {
+    gxd->u8_user[0] = codec;
+    gxd->offset[0] = (uint32)(dest & 0x0FFFFFFF);
+    gxd->u32_user[0] = input_size;
+    gxd->u8_user[1] = channels;
+    gxd->u8_user[2] = sub_codec;
+
+    ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_DECOMPRESS);
+}

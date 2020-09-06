@@ -64,6 +64,9 @@ void zz9k_free_surface(unsigned int p_, const char *src = 0);
 
 void zz9k_debugme(unsigned int off1, unsigned int off2, const char *txt = 0);
 
+void zz9k_decompress(unsigned int dest, uint16 pitch, uint16 x, uint16 y, uint16 w, uint16 h, unsigned char codec);
+void zz9k_decompress_audio(unsigned int dest, unsigned int input_size, unsigned char codec, unsigned char channels = 2, unsigned char sub_codec = 0);
+
 enum gfx_dma_op {
   OP_NONE,
   OP_DRAWLINE,
@@ -94,12 +97,27 @@ enum gfx_acc_op {
   ACC_OP_SET_BPP_CONVERSION_TABLE,
   ACC_OP_DRAW_LINE,
   ACC_OP_FILL_RECT,
+  ACC_OP_DRAW_CIRCLE,
+  ACC_OP_FILL_CIRCLE,
+  ACC_OP_DRAW_FLAT_TRI,
+  ACC_OP_DRAW_TEX_TRI,
+  ACC_OP_DECOMPRESS,
+  ACC_OP_COMPRESS,
+  ACC_OP_CODEC_OP,
   ACC_OP_NUM,
 };
 
 enum gfxdata_offsets {
   GFXDATA_DST,
   GFXDATA_SRC,
+};
+
+enum compression_types {
+  ACC_CMPTYPE_SMUSH_CODEC1,
+  ACC_CMPTYPE_SMUSH_CODEC37,
+  ACC_CMPTYPE_SMUSH_CODEC47,
+  ACC_CMPTYPE_IMA_ADPCM_VBR,
+  ACC_CMPTYPE_NUM,
 };
 
 enum gfxdata_u8_types {

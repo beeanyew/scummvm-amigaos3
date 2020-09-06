@@ -24,6 +24,10 @@
 #define SCUMM_SMUSH_PLAYER_H
 
 #include "common/util.h"
+#include "common/rect.h"
+#include "graphics/surface.h"
+#include "common/memstream.h"
+#include "scumm/gfx.h"
 
 namespace Audio {
 class SoundHandle;
@@ -53,8 +57,10 @@ private:
 	Codec47Decoder *_codec47;
 	Common::SeekableReadStream *_base;
 	uint32 _baseSize;
-	byte *_frameBuffer;
-	byte *_specialBuffer;
+	//byte *_frameBuffer;
+	//byte *_specialBuffer;
+	Common::MemoryReadStream *_membuf;
+	byte *_memDst;
 
 	Common::String _seekFile;
 	uint32 _startFrame;
@@ -75,6 +81,10 @@ private:
 	bool _storeFrame;
 	int _speed;
 	bool _endOfFile;
+
+	Graphics::Surface _frameBuffer;
+	Graphics::Surface _specialBuffer;
+	VirtScreen *_vs;
 
 	byte *_dst;
 	bool _updateNeeded;

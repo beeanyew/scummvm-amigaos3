@@ -26,6 +26,11 @@
 #include "scumm/imuse_digi/dimuse_codecs.h"
 
 #include "audio/decoders/adpcm_intern.h"
+#include "backends/platform/amigaos3/amigaos3-zz9k.h"
+
+extern bool surfaces_use_zz9k;
+extern struct zz9k_GFXData *gxd;
+extern unsigned int zz9k_addr;
 
 namespace Scumm {
 
@@ -640,7 +645,14 @@ int32 decompressCodec(int32 codec, byte *compInput, byte *compOutput, int32 inpu
 
 	case 13:
 	case 15:
-		outputSize = decompressADPCM(compInput, compOutput, (codec == 13) ? 1 : 2);
+		if (surfaces_use_zz9k) {
+			memcpy((void *)gxd->clut4, compInput, inputSize);
+			zz9k_decompress_audio(Z3_SCRATCH_ADDR, inputSize, ACC_CMPTYPE_IMA_ADPCM_VBR, (codec == 13) ? 1 : 2);
+			memcpy(compOutput, (void *)(uint32)(zz9k_addr + Z3_SCRATCH_ADDR), 0x2000);
+			outputSize = 0x2000;
+		} else {
+			outputSize = decompressADPCM(compInput, compOutput, (codec == 13) ? 1 : 2);
+		}
 		break;
 
 	default:

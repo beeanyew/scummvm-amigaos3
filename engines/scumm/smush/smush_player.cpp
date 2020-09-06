@@ -51,6 +51,11 @@
 #include "audio/decoders/vorbis.h"
 
 #include "common/zlib.h"
+#include "backends/platform/amigaos3/amigaos3-zz9k.h"
+
+extern bool surfaces_use_zz9k;
+extern struct zz9k_GFXData *gxd;
+extern unsigned int zz9k_addr;
 
 namespace Scumm {
 
@@ -217,19 +222,21 @@ void SmushPlayer::timerCallback() {
 
 SmushPlayer::SmushPlayer(ScummEngine_v7 *scumm) {
 	_vm = scumm;
+	_vs = NULL;
 	_nbframes = 0;
 	_codec37 = 0;
 	_codec47 = 0;
 	_smixer = NULL;
 	_strings = NULL;
+	_memDst = NULL;
 	_sf[0] = NULL;
 	_sf[1] = NULL;
 	_sf[2] = NULL;
 	_sf[3] = NULL;
 	_sf[4] = NULL;
 	_base = NULL;
-	_frameBuffer = NULL;
-	_specialBuffer = NULL;
+	memset(&_frameBuffer, 0x00, sizeof(Graphics::Surface));
+	memset(&_specialBuffer, 0x00, sizeof(Graphics::Surface));
 
 	_seekPos = -1;
 
@@ -262,6 +269,7 @@ SmushPlayer::~SmushPlayer() {
 
 void SmushPlayer::init(int32 speed) {
 	VirtScreen *vs = &_vm->_virtscr[kMainVirtScreen];
+	_vs = vs;
 
 	_frame = 0;
 	_speed = speed;
@@ -304,11 +312,16 @@ void SmushPlayer::release() {
 	delete _base;
 	_base = NULL;
 
-	free(_specialBuffer);
-	_specialBuffer = NULL;
+	if (_specialBuffer.getBasePtr(0, 0))
+		free(_specialBuffer.getBasePtr(0, 0));
+	//free(_specialBuffer);
+	//_specialBuffer = NULL;
 
-	free(_frameBuffer);
-	_frameBuffer = NULL;
+	if (_frameBuffer.getBasePtr(0, 0))
+		free(_frameBuffer.getBasePtr(0, 0));
+	//free(_frameBuffer.GetBasePtr());
+	//free(_frameBuffer);
+	//_frameBuffer = NULL;
 
 	_IACTstream = NULL;
 
@@ -320,10 +333,32 @@ void SmushPlayer::release() {
 	_vm->_virtscr[kMainVirtScreen].pitch = _origPitch;
 	_vm->_gdi->_numStrips = _origNumStrips;
 
-	delete _codec37;
-	_codec37 = 0;
-	delete _codec47;
-	_codec47 = 0;
+	if (surfaces_use_zz9k) {
+		if (_codec37 != 0) {
+			gxd->u8_user[0] = ACC_CMPTYPE_SMUSH_CODEC37;
+			gxd->u8_user[1] = 2;
+			ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_CODEC_OP);
+			_codec37 = 0;
+		}
+	} else {
+		delete _codec37;
+		_codec37 = 0;
+	}
+	/*if (surfaces_use_zz9k) {
+		if (_codec47 != 0) {
+			gxd->u8_user[0] = ACC_CMPTYPE_SMUSH_CODEC47;
+			gxd->u8_user[1] = 2;
+			ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_CODEC_OP);
+			_codec47 = 0;
+		}
+	} else {*/
+		delete _codec47;
+		_codec47 = 0;
+	//}
+	if (_memDst) {
+		free(_memDst);
+		_memDst = NULL;
+	}
 }
 
 void SmushPlayer::handleSoundBuffer(int32 track_id, int32 index, int32 max_frames, int32 flags, int32 vol, int32 pan, Common::SeekableReadStream &b, int32 size) {
@@ -375,8 +410,11 @@ void SmushPlayer::handleFetch(int32 subSize, Common::SeekableReadStream &b) {
 	debugC(DEBUG_SMUSH, "SmushPlayer::handleFetch()");
 	assert(subSize >= 6);
 
-	if (_frameBuffer != NULL) {
+	/*if (_frameBuffer != NULL) {
 		memcpy(_dst, _frameBuffer, _width * _height);
+	}*/
+	if (_frameBuffer.getBasePtr(0,0)) {
+		_vs->copyRectToSurface(_frameBuffer.getBasePtr(0,0), _frameBuffer.pitch, 0, 0, _frameBuffer.w, _frameBuffer.h);
 	}
 }
 
@@ -738,9 +776,10 @@ void smush_decode_codec1(byte *dst, const byte *src, int left, int top, int widt
 
 void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int top, int width, int height) {
 	if ((height == 242) && (width == 384)) {
-		if (_specialBuffer == 0)
-			_specialBuffer = (byte *)malloc(242 * 384);
-		_dst = _specialBuffer;
+		if (_specialBuffer.getBasePtr(0,0) == 0)
+			_specialBuffer.create(384, 242, Graphics::PixelFormat::createFormatCLUT8());
+			//_specialBuffer = (byte *)malloc(242 * 384);
+		_dst = (byte *)_specialBuffer.getBasePtr(0,0);
 	} else if ((height > _vm->_screenHeight) || (width > _vm->_screenWidth))
 		return;
 	// FT Insane uses smaller frames to draw overlays with moving objects
@@ -760,29 +799,67 @@ void SmushPlayer::decodeFrameObject(int codec, const uint8 *src, int left, int t
 	switch (codec) {
 	case 1:
 	case 3:
-		smush_decode_codec1(_dst, src, left, top, width, height, _vm->_screenWidth);
+		if (surfaces_use_zz9k) {
+			zz9k_decompress((uint32)_dst, _vs->w, left, top, width, height, ACC_CMPTYPE_SMUSH_CODEC1);
+		} else {
+			smush_decode_codec1(_dst, src, left, top, width, height, _vm->_screenWidth);
+		}
 		break;
 	case 37:
-		if (!_codec37)
-			_codec37 = new Codec37Decoder(width, height);
-		if (_codec37)
-			_codec37->decode(_dst, src);
+		if (!_codec37) {
+			if (surfaces_use_zz9k) {
+				gxd->u8_user[0] = ACC_CMPTYPE_SMUSH_CODEC37;
+				gxd->u8_user[1] = 1;
+				gxd->x[0] = width;
+				gxd->y[0] = height;
+				ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_CODEC_OP);
+				_codec37 = (Codec37Decoder *)gxd->u8_user[2];
+			}
+			else
+				_codec37 = new Codec37Decoder(width, height);
+
+		}
+		if (surfaces_use_zz9k) {
+			zz9k_decompress((uint32)_dst, _vs->w, left, top, width, height, ACC_CMPTYPE_SMUSH_CODEC37);
+		}
+		else {
+			if (_codec37)
+				_codec37->decode(_dst, src);
+		}
 		break;
 	case 47:
-		if (!_codec47)
-			_codec47 = new Codec47Decoder(width, height);
-		if (_codec47)
-			_codec47->decode(_dst, src);
+		if (!_codec47) {
+			/*if (surfaces_use_zz9k) {
+				gxd->u8_user[0] = ACC_CMPTYPE_SMUSH_CODEC47;
+				gxd->u8_user[1] = 1;
+				gxd->x[0] = width;
+				gxd->y[0] = height;
+				ZZWRITE16(REG_ZZ_ACC_OP, ACC_OP_CODEC_OP);
+				_codec47 = (Codec47Decoder *)gxd->u8_user[2];
+			}
+			else*/
+				_codec47 = new Codec47Decoder(width, height);
+		}
+		if (_codec47) {
+			/*if (surfaces_use_zz9k) {
+				zz9k_decompress((uint32)_dst, _vs->w, left, top, width, height, ACC_CMPTYPE_SMUSH_CODEC47);
+			}
+			else {*/
+				_codec47->decode(_dst, src);
+			//}
+		}
 		break;
 	default:
 		error("Invalid codec for frame object : %d", codec);
 	}
 
 	if (_storeFrame) {
-		if (_frameBuffer == NULL) {
-			_frameBuffer = (byte *)malloc(_width * _height);
+		if (_frameBuffer.getBasePtr(0,0) == NULL) {
+			_frameBuffer.create(_width, _height, Graphics::PixelFormat::createFormatCLUT8());
+			//_frameBuffer = (byte *)malloc(_width * _height);
 		}
-		memcpy(_frameBuffer, _dst, _width * _height);
+		_frameBuffer.copyRectToSurface(_vs->getBasePtr(0,0), _vs->pitch, 0, 0, _vs->w, _vs->h);
+		//memcpy(_frameBuffer, _dst, _width * _height);
 		_storeFrame = false;
 	}
 }
@@ -826,6 +903,7 @@ void SmushPlayer::handleFrameObject(int32 subSize, Common::SeekableReadStream &b
 	}
 
 	int codec = b.readUint16LE();
+
 	int left = b.readUint16LE();
 	int top = b.readUint16LE();
 	int width = b.readUint16LE();
@@ -835,13 +913,18 @@ void SmushPlayer::handleFrameObject(int32 subSize, Common::SeekableReadStream &b
 	b.readUint16LE();
 
 	int32 chunk_size = subSize - 14;
-	byte *chunk_buffer = (byte *)malloc(chunk_size);
-	assert(chunk_buffer);
-	b.read(chunk_buffer, chunk_size);
 
-	decodeFrameObject(codec, chunk_buffer, left, top, width, height);
-
-	free(chunk_buffer);
+	if (codec <= 37 && surfaces_use_zz9k) {
+		b.read((void *)gxd->clut4, chunk_size);
+		gxd->u32_user[0] = chunk_size;
+		decodeFrameObject(codec, (uint8 *)gxd->clut4, left, top, width, height);
+	} else {
+		byte *chunk_buffer = (byte *)malloc(chunk_size);
+		assert(chunk_buffer);
+		b.read(chunk_buffer, chunk_size);
+		decodeFrameObject(codec, chunk_buffer, left, top, width, height);
+		free(chunk_buffer);
+	}
 }
 
 void SmushPlayer::handleFrame(int32 frameSize, Common::SeekableReadStream &b) {
@@ -993,6 +1076,14 @@ void SmushPlayer::parseNextFrame() {
 			if (!g_scumm->openFile(*tmp, _seekFile))
 				error("SmushPlayer: Unable to open file %s", _seekFile.c_str());
 			_base = tmp;
+			if (_base->size() < 32 * 1024 * 1024) {
+				_memDst = (byte *)malloc(_base->size());
+				_membuf = new Common::MemoryReadStream(_memDst, _base->size());
+				_base->read(_memDst, _base->size());
+				delete _base;
+				_base = _membuf;
+			}
+
 			_base->readUint32BE();
 			_baseSize = _base->readUint32BE();
 
